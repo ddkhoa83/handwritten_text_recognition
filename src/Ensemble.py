@@ -15,7 +15,7 @@ class MNISTStackingEnsemble:
         (
             'mlp',
             MLPClassifier(
-                hidden_layer_sizes=(128, 64), max_iter=300, random_state=42
+                hidden_layer_sizes=(128, 64), max_iter=1000, random_state=42
             ),
         ),
         ('svc', SVC(probability=True, kernel='rbf', random_state=42)),
@@ -31,8 +31,8 @@ class MNISTStackingEnsemble:
 
   def fit(self, X_train, y_train):
     """Huấn luyện mô hình Stacking trên tập train"""
-    
-    return self.stacking_model.fit(X_train, y_train)
+    self.stacking_model.fit(X_train, y_train)
+    return self
 
   def predict(self, X_test):
     """Dự đoán nhãn cho tập test"""

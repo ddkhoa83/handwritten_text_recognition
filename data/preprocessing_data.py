@@ -303,14 +303,4 @@ X_train_scaled, X_val_scaled, y_train, y_val = train_test_split(
     #The class information comes from y_train_full.
     stratify = y_train_full,
 )
-
-np.savez(
-    Path(__file__).parent / 'processed_mnist.npz',
-    X_train=X_train_scaled,
-    y_train=y_train,
-    X_val=X_val_scaled,
-    y_val=y_val,
-    X_test=X_test_scaled,
-    y_test=y_test,
-)
-print('Đã lưu dữ liệu tiền xử lý thành công vào processed_mnist.npz!')
+# Save the preprocessed training, validation, and test data to a single .npz file.
