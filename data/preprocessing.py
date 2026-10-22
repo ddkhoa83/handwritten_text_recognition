@@ -1,4 +1,3 @@
-
 #Import Path to build and manage filesystem paths
 from pathlib import Path
 #Import struct to decode binary headers into Python integers.
@@ -10,9 +9,9 @@ from numpy.typing import NDArray
 #Import the function that splits data into training and validation subsets
 from sklearn.model_selection import train_test_split
 
-# Tự động lấy thư mục hiện tại chứa file script này (chính là thư mục data)
-data_dir: Path = Path(__file__).parent / "MNIST" / "raw"
 
+#Path.home() returns your user's home directory
+data_dir: Path = Path(__file__).resolve().parent / "MNIST" / "raw"
 
 #Define a function that receives the path to an extracted MNIST image file.
 def load_mnist_images(file_path: str | Path) -> NDArray[np.uint8]:
@@ -303,4 +302,8 @@ X_train_scaled, X_val_scaled, y_train, y_val = train_test_split(
     #The class information comes from y_train_full.
     stratify = y_train_full,
 )
-# Save the preprocessed training, validation, and test data to a single .npz file.
+
+
+        
+        
+            
