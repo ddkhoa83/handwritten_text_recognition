@@ -47,7 +47,7 @@ def validate_features(features: ArrayLike) -> FloatArray:
         raise ValueError("features must contain only finite values.")
     return matrix
 
-def validate_labels(labels: ArrayLike, n_sample: int) -> IntArray:
+def validate_labels(labels: ArrayLike, n_samples: int) -> IntArray:
     """
     Validate integer labels without silently truncating fractional values
 
@@ -121,7 +121,7 @@ class MulticlassLinearSVM:
         """
         if not np.isfinite(learning_rate) or learning_rate <= 0: #Check the step size.
             raise ValueError("learning_rate must be positive and finite.") 
-         if not np.isfinite(reg_strength) or reg_strength < 0: #Check regularization strength.
+        if not np.isfinite(reg_strength) or reg_strength < 0: #Check regularization strength.
             raise ValueError("reg_strength must be nonnegative and finite.")
         if not np.isfinite(learning_rate_decay) or learning_rate_decay < 0: #Check the schedule.
             raise ValueError("learning_rate_decay must be nonnegative and finite.")
@@ -193,14 +193,14 @@ class MulticlassLinearSVM:
         #Compute (B, K) class scores via broadcasting
         scores: FloatArray = features @ weights + bias
         #Index each sample's correct score
-        row_indices: IndexArray = np.arange(batch_count)u
+        row_indices: IndexArray = np.arange(batch_count)
         #Gather shape (B, 1)
         correct_scores: FloatArray = scores[row_indices, encoded_labels, None]
         #Apply hinge penalties.
         margins: FloatArray = np.maximum(0.0, 1 + scores - correct_scores)
         margins[row_indices, encoded_labels] = 0.0
         #Average per SAMPLE, not per class.
-        data_loss: float = float(margin.sum() / batch_count)
+        data_loss: float = float(margins.sum() / batch_count)
         #Penalize W only.
         penalty: float = float(0.5*self.reg_strength * np.sum(weights * weights))
         #Combine classification and regularization terms
@@ -211,7 +211,10 @@ class MulticlassLinearSVM:
         violation_counts: FloatArray = score_gradient.sum(axis = 1)
         #Subtract all rivals at y.
         score_gradient[row_indices, encoded_labels] = -violation_counts
-  
+        #Chain rule to W
+        weight_gradient: FloatArray = features.T @ score_gradient / batch_count
+        #Add derivative of the L2 penalty.
+        weight_gradient += self.reg_strength * weights
         #Chain rule to bias
         bias_gradient: FloatArray = score_gradient.sum(axis = 0) / batch_count
         #Supply objective and updates to the optimizer
@@ -242,7 +245,7 @@ class MulticlassLinearSVM:
         #Validate the training matrix once.
         matrix: FloatArray = validate_features(features)
         #Validate row-aligned labels.
-        target: IntArray = validate_labels(labels, matrix.shape[0])
+        targets: IntArray = validate_labels(labels, matrix.shape[0])
         #Annotate the two class-mapping arrays.
         classes: IntArray; encoded_labels: IntArray
         #Encode labels as 0....K-1
@@ -267,7 +270,7 @@ class MulticlassLinearSVM:
             #Shuffle each epoch
             shuffled_indices: IndexArray = generator.permutation(matrix.shape[0])
             #Decay eta.
-            step_size: float = self.learning_rate / (1.0 + learning_rate_decay * epoch)
+            step_size: float = self.learning_rate / (1.0 + self.learning_rate_decay * epoch)
             #Accumulate batch loss multiplied by batch size.
             weighted_loss: float = 0.0
 
@@ -309,12 +312,12 @@ class MulticlassLinearSVM:
             #Print only when requested.
             if self.verbose:
                 #Report progress
-                print(f"Epoch {epoch + 1:03d} / {self.n_epochs}: batch loss = {epoch_loss:.6f}").
+                print(f"Epoch {epoch + 1:03d} / {self.n_epochs}: batch loss = {epoch_loss:.6f}")
 
             #Allow estimator-style chaning after successful training
             return self
                 
-    def decision_funtion(sefl, features: ArrayLike) -> FloatArray:
+    def decision_funtion(self, features: ArrayLike) -> FloatArray:
         """
         Return raw scores (N, K) for feature row (N, D).
 
@@ -355,7 +358,7 @@ class MulticlassLinearSVM:
         #Restore original labels rather than returning encoded IDs.
         return classes[winning_indices]
 
-    def score(self, feature: ArrayLike, labels: ArrayLike) -> float:
+    def score(self, features: ArrayLike, labels: ArrayLike) -> float:
         """
         Return classification accuracy in [0, 1]
 
