@@ -56,6 +56,10 @@ class MLP:
             batch_size: int = 256,
             momentum: float = 0.0,
             weight_decay: float = 0.0,
+            hidden_sizes: list = (256, 128),
+            activation: str = "relu",
+            p_drop: float = 0.0,
+            init: str = "he",
             verbose: bool = True
         ) -> None:
             """
@@ -69,10 +73,6 @@ class MLP:
                 Positive number of training epochs
             batch_size: int
                 Positive maximum number of samples per mini-batch
-            reg_strength: float
-                Nonnegative L2 regularization coeffeicient
-            random_state: int
-                Seed used for reproducible shuffling.
             verbose: bool
                 Whether to display training progress
     
@@ -109,6 +109,11 @@ class MLP:
     
             #Store the maximum number of samples per update.
             self.batch_size: int = batch_size
+
+            self.hidden_sizes = tuple(hidden_sizes)
+            self.activation = activation
+            self.p_drop = p_drop
+            self.init = init
     
             #Store whether training progress should be printed
             self.verbose: bool = verbose
@@ -172,7 +177,7 @@ def n_params(model):
 
 def forward_with_cache(
         model,
-        X,              #input data
+        X: FeatureArray,              #input data
         train=True      # true = use drop out, false for not
     ):
     """output: (output of layer, cache). cache[i] = (layer, a_in, a_out, extra)."""
@@ -192,9 +197,11 @@ def forward_with_cache(
         cache.append((layer, a_in, a, extra))
     return a, cache
 
-def softmax_cross_entropy(logits, y):
+def softmax_cross_entropy(
+        logits: torch.Tensor,
+        y: LabelArray):
     """
-    input:  logits: pre-activate of the last layer, size (N, K),
+    input:  logits (torch.tensor): pre-activate of the last layer, size (N, K),
             y: list of label (N,) 0..K-1.
     output: (loss, delta): 
             loss = mean of cross-entropy (tensor),
@@ -209,7 +216,10 @@ def softmax_cross_entropy(logits, y):
     delta = (torch.exp(log_probs) - Y) / N                         # derivatice J with entire network output
     return loss, delta
 
-def linear_backward(layer, a_in, delta):
+def linear_backward(
+        layer,
+        a_in: FloatArray,
+        delta: FloatArray):
     """
     input:  a_in: input of current layer,
             delta: derivation E with z
@@ -222,19 +232,22 @@ def linear_backward(layer, a_in, delta):
     grad_in = delta @ layer.weight
     return dW, db, grad_in
 
-def relu_backward(a_in, grad):
+def relu_backward(a_in: FloatArray, grad: FloatArray):
     return grad * (a_in > 0).to(grad.dtype)          # f'(z) = 1[z > 0]
 
 
-def sigmoid_backward(a_out, grad):
+def sigmoid_backward(a_out: FloatArray, grad: FloatArray):
     return grad * a_out * (1.0 - a_out)               # sigma' = a (1 - a)
 
 
-def tanh_backward(a_out, grad):
+def tanh_backward(a_out: FloatArray, grad: FloatArray):
     return grad * (1.0 - a_out ** 2)                  # tanh' = 1 - tanh^2
 
 
-def dropout_backward(mask, p, grad):
+def dropout_backward(
+        mask: bool,
+        p: float,
+        grad: FloatArray):
     """
     input: mask = None mean do not drop out in forward
     """
@@ -242,7 +255,10 @@ def dropout_backward(mask, p, grad):
         return grad
     return grad * mask / (1.0 - p)
 
-def backward(cache, grad_out, weight_decay=0.0):
+def backward(
+        cache: list,
+        grad_out: FloatArray,
+        weight_decay=0.0):
     """
     input:  grad_out = dJ/d(output of network)
     output: dJ/dX (X: input of network)."""
@@ -300,7 +316,7 @@ def train_one_epoch(
         count += len(idx)
     return total / count
 
-def evaluate(model, X, y, batch_size=5000):
+def evaluate(model, X: FeatureArray, y: LabelArray, batch_size=5000):
     """output: cross-etropy, accuracy"""
     total, correct = 0.0, 0
     for s in range(0, len(X), batch_size):
@@ -336,3 +352,68 @@ def train_model(model, epochs, lr, momentum=0.0, batch_size=128, weight_decay=0.
                 print("loss = nan/inf, early stop.")
             break
     return hist
+
+def fit(
+        self, X: FeatureArray, y: LabelArray,
+        X_val: FeatureArray, y_val: LabelArray
+    ):
+
+    #convert X into a tensor
+    X = torch.as_tensor(X, dtype=torch.float32)
+    #save labels's name
+    y = np.asarray(y)
+    self.classes_ = np.unique(y)
+    #convert label to number 0, 1, 2,... (for one-hot)
+    y_encoded = np.searchsorted(self.classes_, y)
+    y = torch.as_tensor(Y, dtype=torch.long)
+
+    if X_val is None:
+        X_val = X
+        y_val = y
+    else:
+        X_val = torch.as_tensor(X_val, dtype=torch.float32)
+        y_val = np.asarray(y_val)
+        y_val = np.searchsorted(self.classes_, y_val)
+        y_val = torch.as_tensor(y_val, dtype=torch.long)
+
+    #size of each layer
+    sizes = [X.shape[1], *self.hidden_sizes, len(self.classes_)]
+
+    self.model_ = build_mlp(
+        sizes,
+        activation= self.activition,
+        p_drop= self.p_drop,
+        init=self.init
+    )
+    self.history_ = train_model(
+        self.model_,
+        epochs=self.n_epochs,
+        lr=self.learing_rate,
+        momentum=self.momentum,
+        batch_size=self.batch_size,
+        weight_decay=self.weight_decay,
+        X_tr=X,
+        y_tr=y,
+        X_va=X_val,
+        y_va=y_val,
+        verbose=self.verbose,
+    )
+    return self
+
+def predict(self, X: FeatureArray):
+    if self.model_ is None:
+        raise ValueError("Model has not been fitted yet.")
+
+    X = torch.as_tensor(X, dtype=torch.float32)
+
+    # no need to compute gradients when predict
+    with torch.no_grad():
+        logits, _ = forward_with_cache(
+            self.model_,
+            X,
+            train=False
+        )
+
+        y_pred = logits.argmax(dim=1).cpu().numpy()
+
+    return self.classes_[y_pred]
