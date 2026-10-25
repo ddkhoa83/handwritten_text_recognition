@@ -130,290 +130,290 @@ class MLP:
             #Start with an empty list of epoch losses.
             self.loss_history_: list[float] = []
 
-ACTIVATIONS = {"relu": nn.ReLU, "sigmoid": nn.Sigmoid, "tanh": nn.Tanh}
-def build_mlp(
-        sizes: list,
-        activation="relu",
-        p_drop=0.0,
-        init="he",
-        const=0.01,
-        seed=SEED
-    ) -> nn.Sequential() :
-    """
-    to initialize weight, bias, activation each layer of model
-    input: sizes = [784, k_1, ..., k_{L-1}, 10]. (sizes of each layer)
-    output: a model
-    Linear -> Act -> (Dropout) -> ... -> Linear (output layer do not have activation).
-    """
-    layers = []
-    L = len(sizes) - 1
-    for l in range(L):
-        #initialize layer l
-        lin = nn.Linear(sizes[l], sizes[l + 1])
+    ACTIVATIONS = {"relu": nn.ReLU, "sigmoid": nn.Sigmoid, "tanh": nn.Tanh}
+    def build_mlp(
+            sizes: list,
+            activation="relu",
+            p_drop=0.0,
+            init="he",
+            const=0.01,
+            seed=SEED
+        ) -> nn.Sequential() :
+        """
+        to initialize weight, bias, activation each layer of model
+        input: sizes = [784, k_1, ..., k_{L-1}, 10]. (sizes of each layer)
+        output: a model
+        Linear -> Act -> (Dropout) -> ... -> Linear (output layer do not have activation).
+        """
+        layers = []
+        L = len(sizes) - 1
+        for l in range(L):
+            #initialize layer l
+            lin = nn.Linear(sizes[l], sizes[l + 1])
 
-        #weight initialization
-        if init == "he":
-            nn.init.kaiming_normal_(lin.weight, nonlinearity="relu")   # std = sqrt(2 / k_in)
-        elif init == "xavier":
-            nn.init.xavier_uniform_(lin.weight)                         # U(-sqrt(6/(k_in+k_out)), +...)
-        else:
-            raise ValueError(init)
-        #bias initialization
-        nn.init.zeros_(lin.bias)
-
-        layers.append(lin)
-
-        if l < L - 1:
-            layers.append(ACTIVATIONS[activation]())
-            if p_drop > 0:
-                layers.append(nn.Dropout(p_drop))
-    return nn.Sequential(*layers)
-
-def n_params(model):
-    """
-    output: the number of parameter
-    """
-    return sum(p.numel() for p in model.parameters())
-
-def forward_with_cache(
-        model,
-        X: FeatureArray,              #input data
-        train=True      # true = use drop out, false for not
-    ):
-    """output: (output of layer, cache). cache[i] = (layer, a_in, a_out, extra)."""
-    cache = []
-    a = X
-    for layer in model:
-        a_in = a
-        extra = None
-        if isinstance(layer, nn.Dropout):
-            if train and layer.p > 0:
-                extra = (torch.rand_like(a_in) >= layer.p).to(a_in.dtype)   # M ~ Bernoulli(1 - p)
-                a = a_in * extra / (1.0 - layer.p)
+            #weight initialization
+            if init == "he":
+                nn.init.kaiming_normal_(lin.weight, nonlinearity="relu")   # std = sqrt(2 / k_in)
+            elif init == "xavier":
+                nn.init.xavier_uniform_(lin.weight)                         # U(-sqrt(6/(k_in+k_out)), +...)
             else:
-                a = a_in
-        else:
-            a = layer(a_in)
-        cache.append((layer, a_in, a, extra))
-    return a, cache
+                raise ValueError(init)
+            #bias initialization
+            nn.init.zeros_(lin.bias)
 
-def softmax_cross_entropy(
-        logits: torch.Tensor,
-        y: LabelArray):
-    """
-    input:  logits (torch.tensor): pre-activate of the last layer, size (N, K),
-            y: list of label (N,) 0..K-1.
-    output: (loss, delta): 
-            loss = mean of cross-entropy (tensor),
-            delta = dJ/dlogits, size (N, K).
-    """
-    N = logits.shape[0]
-    z = logits - logits.max(dim=1, keepdim=True).values            # subtract for max to avoid overflow
-    log_probs = z - torch.log(torch.exp(z).sum(dim=1, keepdim=True))    #softmax
-    loss = -log_probs[torch.arange(N), y].mean()                   # cross entropy los
-    Y = torch.zeros_like(logits)
-    Y[torch.arange(N), y] = 1.0                                    # set one-hot
-    delta = (torch.exp(log_probs) - Y) / N                         # derivatice J with entire network output
-    return loss, delta
+            layers.append(lin)
 
-def linear_backward(
-        layer,
-        a_in: FloatArray,
-        delta: FloatArray):
-    """
-    input:  a_in: input of current layer,
-            delta: derivation E with z
-    output: dW: derivation E with weight
-            db: derivation E with bias
-            grad_in: derivation E with a_in
-    """
-    dW = delta.T @ a_in
-    db = delta.sum(dim=0)
-    grad_in = delta @ layer.weight
-    return dW, db, grad_in
+            if l < L - 1:
+                layers.append(ACTIVATIONS[activation]())
+                if p_drop > 0:
+                    layers.append(nn.Dropout(p_drop))
+        return nn.Sequential(*layers)
 
-def relu_backward(a_in: FloatArray, grad: FloatArray):
-    return grad * (a_in > 0).to(grad.dtype)          # f'(z) = 1[z > 0]
+    def n_params(model):
+        """
+        output: the number of parameter
+        """
+        return sum(p.numel() for p in model.parameters())
+
+    def forward_with_cache(
+            model,
+            X: FeatureArray,              #input data
+            train=True      # true = use drop out, false for not
+        ):
+        """output: (output of layer, cache). cache[i] = (layer, a_in, a_out, extra)."""
+        cache = []
+        a = X
+        for layer in model:
+            a_in = a
+            extra = None
+            if isinstance(layer, nn.Dropout):
+                if train and layer.p > 0:
+                    extra = (torch.rand_like(a_in) >= layer.p).to(a_in.dtype)   # M ~ Bernoulli(1 - p)
+                    a = a_in * extra / (1.0 - layer.p)
+                else:
+                    a = a_in
+            else:
+                a = layer(a_in)
+            cache.append((layer, a_in, a, extra))
+        return a, cache
+
+    def softmax_cross_entropy(
+            logits: torch.Tensor,
+            y: LabelArray):
+        """
+        input:  logits (torch.tensor): pre-activate of the last layer, size (N, K),
+                y: list of label (N,) 0..K-1.
+        output: (loss, delta): 
+                loss = mean of cross-entropy (tensor),
+                delta = dJ/dlogits, size (N, K).
+        """
+        N = logits.shape[0]
+        z = logits - logits.max(dim=1, keepdim=True).values            # subtract for max to avoid overflow
+        log_probs = z - torch.log(torch.exp(z).sum(dim=1, keepdim=True))    #softmax
+        loss = -log_probs[torch.arange(N), y].mean()                   # cross entropy los
+        Y = torch.zeros_like(logits)
+        Y[torch.arange(N), y] = 1.0                                    # set one-hot
+        delta = (torch.exp(log_probs) - Y) / N                         # derivatice J with entire network output
+        return loss, delta
+
+    def linear_backward(
+            layer,
+            a_in: FloatArray,
+            delta: FloatArray):
+        """
+        input:  a_in: input of current layer,
+                delta: derivation E with z
+        output: dW: derivation E with weight
+                db: derivation E with bias
+                grad_in: derivation E with a_in
+        """
+        dW = delta.T @ a_in
+        db = delta.sum(dim=0)
+        grad_in = delta @ layer.weight
+        return dW, db, grad_in
+
+    def relu_backward(a_in: FloatArray, grad: FloatArray):
+        return grad * (a_in > 0).to(grad.dtype)          # f'(z) = 1[z > 0]
 
 
-def sigmoid_backward(a_out: FloatArray, grad: FloatArray):
-    return grad * a_out * (1.0 - a_out)               # sigma' = a (1 - a)
+    def sigmoid_backward(a_out: FloatArray, grad: FloatArray):
+        return grad * a_out * (1.0 - a_out)               # sigma' = a (1 - a)
 
 
-def tanh_backward(a_out: FloatArray, grad: FloatArray):
-    return grad * (1.0 - a_out ** 2)                  # tanh' = 1 - tanh^2
+    def tanh_backward(a_out: FloatArray, grad: FloatArray):
+        return grad * (1.0 - a_out ** 2)                  # tanh' = 1 - tanh^2
 
 
-def dropout_backward(
-        mask: bool,
-        p: float,
-        grad: FloatArray):
-    """
-    input: mask = None mean do not drop out in forward
-    """
-    if mask is None:
+    def dropout_backward(
+            mask: bool,
+            p: float,
+            grad: FloatArray):
+        """
+        input: mask = None mean do not drop out in forward
+        """
+        if mask is None:
+            return grad
+        return grad * mask / (1.0 - p)
+
+    def backward(
+            cache: list,
+            grad_out: FloatArray,
+            weight_decay=0.0):
+        """
+        input:  grad_out = dJ/d(output of network)
+        output: dJ/dX (X: input of network)."""
+        grad = grad_out
+        for layer, a_in, a_out, extra in reversed(cache):
+            if isinstance(layer, nn.Linear):
+                dW, db, grad = linear_backward(layer, a_in, grad)
+                layer.weight.grad = dW + weight_decay * layer.weight   # L2 chi tren W
+                layer.bias.grad = db
+            elif isinstance(layer, nn.ReLU):
+                grad = relu_backward(a_in, grad)
+            elif isinstance(layer, nn.Sigmoid):
+                grad = sigmoid_backward(a_out, grad)
+            elif isinstance(layer, nn.Tanh):
+                grad = tanh_backward(a_out, grad)
+            elif isinstance(layer, nn.Dropout):
+                grad = dropout_backward(extra, layer.p, grad)
+            else:
+                raise TypeError(f"This module is not supported {type(layer).__name__}")
         return grad
-    return grad * mask / (1.0 - p)
 
-def backward(
-        cache: list,
-        grad_out: FloatArray,
-        weight_decay=0.0):
-    """
-    input:  grad_out = dJ/d(output of network)
-    output: dJ/dX (X: input of network)."""
-    grad = grad_out
-    for layer, a_in, a_out, extra in reversed(cache):
-        if isinstance(layer, nn.Linear):
-            dW, db, grad = linear_backward(layer, a_in, grad)
-            layer.weight.grad = dW + weight_decay * layer.weight   # L2 chi tren W
-            layer.bias.grad = db
-        elif isinstance(layer, nn.ReLU):
-            grad = relu_backward(a_in, grad)
-        elif isinstance(layer, nn.Sigmoid):
-            grad = sigmoid_backward(a_out, grad)
-        elif isinstance(layer, nn.Tanh):
-            grad = tanh_backward(a_out, grad)
-        elif isinstance(layer, nn.Dropout):
-            grad = dropout_backward(extra, layer.p, grad)
-        else:
-            raise TypeError(f"This module is not supported {type(layer).__name__}")
-    return grad
+    class SGDMomentum:
+        def __init__(self, params, lr, momentum=0.0):
+            self.params = list(params)
+            self.lr, self.momentum = lr, momentum
+            self.velocity = [torch.zeros_like(p) for p in self.params]   # Delta_w(0) = 0
 
-class SGDMomentum:
-    def __init__(self, params, lr, momentum=0.0):
-        self.params = list(params)
-        self.lr, self.momentum = lr, momentum
-        self.velocity = [torch.zeros_like(p) for p in self.params]   # Delta_w(0) = 0
+        def step(self):
+            for p, v in zip(self.params, self.velocity):
+                v.mul_(self.momentum).sub_(self.lr * p.grad)   # Delta_w = alpha * Delta_w - gamma * g
+                p.add_(v)                                      # w = w + Delta_w
 
-    def step(self):
-        for p, v in zip(self.params, self.velocity):
-            v.mul_(self.momentum).sub_(self.lr * p.grad)   # Delta_w = alpha * Delta_w - gamma * g
-            p.add_(v)                                      # w = w + Delta_w
+        def zero_grad(self):
+            for p in self.params:
+                p.grad = None
 
-    def zero_grad(self):
-        for p in self.params:
-            p.grad = None
+    def train_one_epoch(
+            model, X, y,
+            optimizer: SGDMomentum,
+            batch_size=128,
+            weight_decay=0.0
+        ):
+        """output: mean of loss in one epoch"""
+        N = X.shape[0]
+        perm = torch.randperm(N)
+        total, count = 0.0, 0
+        for start in range(0, N, batch_size):
+            idx = perm[start:start + batch_size]
+            logits, cache = forward_with_cache(model, X[idx], train=True)
+            optimizer.zero_grad()   
+            loss, delta = softmax_cross_entropy(logits, y[idx])             
+            backward(cache, delta, weight_decay)                            
+            optimizer.step()                                                
+            total += loss.item() * len(idx)
+            count += len(idx)
+        return total / count
 
-def train_one_epoch(
-        model, X, y,
-        optimizer: SGDMomentum,
-        batch_size=128,
-        weight_decay=0.0
-    ):
-    """output: mean of loss in one epoch"""
-    N = X.shape[0]
-    perm = torch.randperm(N)
-    total, count = 0.0, 0
-    for start in range(0, N, batch_size):
-        idx = perm[start:start + batch_size]
-        logits, cache = forward_with_cache(model, X[idx], train=True)
-        optimizer.zero_grad()   
-        loss, delta = softmax_cross_entropy(logits, y[idx])             
-        backward(cache, delta, weight_decay)                            
-        optimizer.step()                                                
-        total += loss.item() * len(idx)
-        count += len(idx)
-    return total / count
+    def evaluate(model, X: FeatureArray, y: LabelArray, batch_size=5000):
+        """output: cross-etropy, accuracy"""
+        total, correct = 0.0, 0
+        for s in range(0, len(X), batch_size):
+            logits, _ = forward_with_cache(model, X[s:s + batch_size], train=False)
+            loss, _ = softmax_cross_entropy(logits, y[s:s + batch_size])
+            total += loss.item() * len(logits)
+            correct += (logits.argmax(dim=1) == y[s:s + batch_size]).sum().item()
+        return total / len(X), correct / len(X)
 
-def evaluate(model, X: FeatureArray, y: LabelArray, batch_size=5000):
-    """output: cross-etropy, accuracy"""
-    total, correct = 0.0, 0
-    for s in range(0, len(X), batch_size):
-        logits, _ = forward_with_cache(model, X[s:s + batch_size], train=False)
-        loss, _ = softmax_cross_entropy(logits, y[s:s + batch_size])
-        total += loss.item() * len(logits)
-        correct += (logits.argmax(dim=1) == y[s:s + batch_size]).sum().item()
-    return total / len(X), correct / len(X)
-
-def train_model(model, epochs, lr, momentum=0.0, batch_size=128, weight_decay=0.0,
-                X_tr=None, y_tr=None, X_va=None, y_va=None, optimizer=None,
-                seed=SEED, verbose=True):
-    X_tr = X_train if X_tr is None else X_tr
-    y_tr = y_train if y_tr is None else y_tr
-    X_va = X_val if X_va is None else X_va
-    y_va = y_val if y_va is None else y_va
-    torch.manual_seed(seed)
-    opt = optimizer if optimizer is not None else SGDMomentum(model.parameters(), lr, momentum)
-    hist = {k: [] for k in ["train_loss", "train_acc", "val_loss", "val_acc", "time"]}
-    for ep in range(1, epochs + 1):
-        t0 = time.time()
-        train_one_epoch(model, X_tr, y_tr, opt, batch_size, weight_decay)
-        dt = time.time() - t0
-        tl, ta = evaluate(model, X_tr, y_tr)
-        vl, va = evaluate(model, X_va, y_va)
-        for k, v in zip(hist, [tl, ta, vl, va, dt]):
-            hist[k].append(v)
-        if verbose:
-            print(f"epoch {ep:2d} | {dt:5.1f}s | train loss {tl:.4f} acc {ta:.4f} | val loss {vl:.4f} acc {va:.4f}")
-            print(f"best accuracy: {max(hist_base["val_acc"])}")
-        if not np.isfinite(tl):
+    def train_model(model, epochs, lr, momentum=0.0, batch_size=128, weight_decay=0.0,
+                    X_tr=None, y_tr=None, X_va=None, y_va=None, optimizer=None,
+                    seed=SEED, verbose=True):
+        X_tr = X_train if X_tr is None else X_tr
+        y_tr = y_train if y_tr is None else y_tr
+        X_va = X_val if X_va is None else X_va
+        y_va = y_val if y_va is None else y_va
+        torch.manual_seed(seed)
+        opt = optimizer if optimizer is not None else SGDMomentum(model.parameters(), lr, momentum)
+        hist = {k: [] for k in ["train_loss", "train_acc", "val_loss", "val_acc", "time"]}
+        for ep in range(1, epochs + 1):
+            t0 = time.time()
+            train_one_epoch(model, X_tr, y_tr, opt, batch_size, weight_decay)
+            dt = time.time() - t0
+            tl, ta = evaluate(model, X_tr, y_tr)
+            vl, va = evaluate(model, X_va, y_va)
+            for k, v in zip(hist, [tl, ta, vl, va, dt]):
+                hist[k].append(v)
             if verbose:
-                print("loss = nan/inf, early stop.")
-            break
-    return hist
+                print(f"epoch {ep:2d} | {dt:5.1f}s | train loss {tl:.4f} acc {ta:.4f} | val loss {vl:.4f} acc {va:.4f}")
+                print(f"best accuracy: {max(hist_base["val_acc"])}")
+            if not np.isfinite(tl):
+                if verbose:
+                    print("loss = nan/inf, early stop.")
+                break
+        return hist
 
-def fit(
-        self, X: FeatureArray, y: LabelArray,
-        X_val: FeatureArray, y_val: LabelArray
-    ):
+    def fit(
+            self, X: FeatureArray, y: LabelArray,
+            X_val: FeatureArray, y_val: LabelArray
+        ):
 
-    #convert X into a tensor
-    X = torch.as_tensor(X, dtype=torch.float32)
-    #save labels's name
-    y = np.asarray(y)
-    self.classes_ = np.unique(y)
-    #convert label to number 0, 1, 2,... (for one-hot)
-    y_encoded = np.searchsorted(self.classes_, y)
-    y = torch.as_tensor(Y, dtype=torch.long)
+        #convert X into a tensor
+        X = torch.as_tensor(X, dtype=torch.float32)
+        #save labels's name
+        y = np.asarray(y)
+        self.classes_ = np.unique(y)
+        #convert label to number 0, 1, 2,... (for one-hot)
+        y_encoded = np.searchsorted(self.classes_, y)
+        y = torch.as_tensor(Y, dtype=torch.long)
 
-    if X_val is None:
-        X_val = X
-        y_val = y
-    else:
-        X_val = torch.as_tensor(X_val, dtype=torch.float32)
-        y_val = np.asarray(y_val)
-        y_val = np.searchsorted(self.classes_, y_val)
-        y_val = torch.as_tensor(y_val, dtype=torch.long)
+        if X_val is None:
+            X_val = X
+            y_val = y
+        else:
+            X_val = torch.as_tensor(X_val, dtype=torch.float32)
+            y_val = np.asarray(y_val)
+            y_val = np.searchsorted(self.classes_, y_val)
+            y_val = torch.as_tensor(y_val, dtype=torch.long)
 
-    #size of each layer
-    sizes = [X.shape[1], *self.hidden_sizes, len(self.classes_)]
+        #size of each layer
+        sizes = [X.shape[1], *self.hidden_sizes, len(self.classes_)]
 
-    self.model_ = build_mlp(
-        sizes,
-        activation= self.activition,
-        p_drop= self.p_drop,
-        init=self.init
-    )
-    self.history_ = train_model(
-        self.model_,
-        epochs=self.n_epochs,
-        lr=self.learing_rate,
-        momentum=self.momentum,
-        batch_size=self.batch_size,
-        weight_decay=self.weight_decay,
-        X_tr=X,
-        y_tr=y,
-        X_va=X_val,
-        y_va=y_val,
-        verbose=self.verbose,
-    )
-    return self
-
-def predict(self, X: FeatureArray):
-    if self.model_ is None:
-        raise ValueError("Model has not been fitted yet.")
-
-    X = torch.as_tensor(X, dtype=torch.float32)
-
-    # no need to compute gradients when predict
-    with torch.no_grad():
-        logits, _ = forward_with_cache(
-            self.model_,
-            X,
-            train=False
+        self.model_ = build_mlp(
+            sizes,
+            activation= self.activition,
+            p_drop= self.p_drop,
+            init=self.init
         )
+        self.history_ = train_model(
+            self.model_,
+            epochs=self.n_epochs,
+            lr=self.learing_rate,
+            momentum=self.momentum,
+            batch_size=self.batch_size,
+            weight_decay=self.weight_decay,
+            X_tr=X,
+            y_tr=y,
+            X_va=X_val,
+            y_va=y_val,
+            verbose=self.verbose,
+        )
+        return self
 
-        y_pred = logits.argmax(dim=1).cpu().numpy()
+    def predict(self, X: FeatureArray):
+        if self.model_ is None:
+            raise ValueError("Model has not been fitted yet.")
 
-    return self.classes_[y_pred]
+        X = torch.as_tensor(X, dtype=torch.float32)
+
+        # no need to compute gradients when predict
+        with torch.no_grad():
+            logits, _ = forward_with_cache(
+                self.model_,
+                X,
+                train=False
+            )
+
+            y_pred = logits.argmax(dim=1).cpu().numpy()
+
+        return self.classes_[y_pred]
