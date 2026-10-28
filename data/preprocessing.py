@@ -11,13 +11,7 @@ from sklearn.model_selection import train_test_split
 
 
 #Path.home() returns your user's home directory
-data_dir: Path = (
-    Path.home()
-    /"handwritten_text_recognition"
-    /"data"
-    /"MNIST"
-    /"raw"
-)
+data_dir: Path = Path(__file__).resolve().parent / "MNIST" / "raw"
 
 #Define a function that receives the path to an extracted MNIST image file.
 def load_mnist_images(file_path: str | Path) -> NDArray[np.uint8]:
