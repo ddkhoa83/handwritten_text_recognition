@@ -314,8 +314,8 @@ class MulticlassLinearSVM:
                 #Report progress
                 print(f"Epoch {epoch + 1:03d} / {self.n_epochs}: batch loss = {epoch_loss:.6f}")
 
-            #Allow estimator-style chaning after successful training
-            return self
+        #Allow estimator-style chaning after successful training
+        return self
                 
     def decision_funtion(self, features: ArrayLike) -> FloatArray:
         """
