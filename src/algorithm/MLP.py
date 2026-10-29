@@ -183,7 +183,11 @@ class MLP:
             X: FeatureArray,              #input data
             train=True      # true = use drop out, false for not
         ):
-        """output: (output of layer, cache). cache[i] = (layer, a_in, a_out, extra)."""
+        """
+        output: (a, cache)
+                a = output of network
+                cache[i] = (layer, a_in, a_out, extra)
+        """
         cache = []
         a = X
         for layer in model:
@@ -307,23 +311,23 @@ class MLP:
             batch_size=128,
             weight_decay=0.0
         ):
-        """output: mean of loss in one epoch"""
+        """output: mean of cross-entropy loss in one epoch"""
         N = X.shape[0]
         perm = torch.randperm(N)
-        total, count = 0.0, 0
+        total, count = 0.0, 0           #total of loss
         for start in range(0, N, batch_size):
             idx = perm[start:start + batch_size]
             logits, cache = MLP.forward_with_cache(model, X[idx], train=True)
-            optimizer.zero_grad()   
-            loss, delta = MLP.softmax_cross_entropy(logits, y[idx])             
-            MLP.backward(cache, delta, weight_decay)                            
-            optimizer.step()                                                
+            optimizer.zero_grad()
+            loss, delta = MLP.softmax_cross_entropy(logits, y[idx])
+            MLP.backward(cache, delta, weight_decay)
+            optimizer.step()
             total += loss.item() * len(idx)
             count += len(idx)
         return total / count
 
     def evaluate(model, X: FeatureArray, y: LabelArray, batch_size=5000):
-        """output: cross-etropy, accuracy"""
+        """output: cross-etropy loss, accuracy"""
         total, correct = 0.0, 0
         for s in range(0, len(X), batch_size):
             logits, _ = MLP.forward_with_cache(model, X[s:s + batch_size], train=False)
@@ -332,14 +336,10 @@ class MLP:
             correct += (logits.argmax(dim=1) == y[s:s + batch_size]).sum().item()
         return total / len(X), correct / len(X)
 
-    def train_model(model, epochs, lr, momentum=0.0, batch_size=128, weight_decay=0.0,
-                    X_tr=None, y_tr=None, X_va=None, y_va=None, optimizer=None,
+    def train_model(model, epochs, lr, X_tr , y_tr, X_va, y_va,
+                    momentum=0.0, batch_size=128, weight_decay=0.0,optimizer=None,
                     seed=SEED, verbose=True):
         
-        X_tr = MLP.X_train if X_tr is None else X_tr
-        y_tr = MLP.y_train if y_tr is None else y_tr
-        X_va = MLP.X_val if X_va is None else X_va
-        y_va = MLP.y_val if y_va is None else y_va
         torch.manual_seed(seed)
         opt = optimizer if optimizer is not None else MLP.SGDMomentum(model.parameters(), lr, momentum)
         hist = {k: [] for k in ["train_loss", "train_acc", "val_loss", "val_acc", "time"]}
