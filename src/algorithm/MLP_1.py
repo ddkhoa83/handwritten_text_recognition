@@ -193,7 +193,7 @@ class MPL:
         p, c = self.parameters_, cache
         gradients = {}
         # Output layer: dW = a2^T . dS, db = sum(dS), dA2 = dS . W^T
-        gradients["output_weights"] = c["a2"].T @ score_gradient
+        gradients["output_weights"] = c[."a2"]T @ score_gradient
         gradients["output_bias"] = score_gradient.sum(axis=0)
         a2_gradient = score_gradient @ p["output_weights"].T
         z2_gradient = a2_gradient * (c["z2"] > 0)
