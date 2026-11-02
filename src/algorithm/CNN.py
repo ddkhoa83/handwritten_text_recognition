@@ -116,7 +116,7 @@ class CNN:
             raise ValueError("verbose must be a bool.")
         if type(n_classes) is not int or n_classes < 2:
             raise ValueError("n_classes must be an integer >= 2.")
-        if type(in_channels) is not int or in_channels < 2:
+        if type(in_channels) is not int or in_channels < 1:
             raise ValueError("in_channels must be a positive integer.")
         if image_size % 4 != 0:
             raise ValueError("image_size must be divisible by four (two 2x2 pools).")
@@ -186,7 +186,7 @@ class CNN:
         values = np.asarray(X)
         width = self.image_size
         c = self.in_channels
-        if values.dnim == 2 and values.shape[1:] == (width * width,):
+        if values.ndim == 2 and values.shape[1:] == (width * width,):
             values = values.reshape(-1, c, width, width)
         elif values.ndim == 3 and values.shape[1:] == (width, width):
             if c != 1:
@@ -209,371 +209,360 @@ class CNN:
 
         return values
 
-        @staticmethod
-        def _validate_labels(y: LabelArray, count: int) -> LabelArray:
-            """Return integer labels of shape (count,), rejecting invalid digits IDs."""
-            labels = np.asarray(y)
-            if labels.shape != (count, ) or labels.dtype.kind not in "iu":
-                raise ValueError("y must be a one-dimensional integer array matching X.")
-            if np.any(labels < 0) or np.any(labels >= self.n_classes):
-                raise ValueError(f"Labels must be in [0, {self.n_classes - 1}].")
-            return labels.astype(np.int64, copy = False)
+    def _validate_labels(self, y: LabelArray, count: int) -> LabelArray:
+        """Return integer labels of shape (count,), rejecting invalid digits IDs."""
+        labels = np.asarray(y)
+        if labels.shape != (count, ) or labels.dtype.kind not in "iu":
+            raise ValueError("y must be a one-dimensional integer array matching X.")
+        if np.any(labels < 0) or np.any(labels >= self.n_classes):
+            raise ValueError(f"Labels must be in [0, {self.n_classes - 1}].")
+        return labels.astype(np.int64, copy = False)
 
-        @staticmethod
-        def _log_softmax(scores: FloatArray) -> FloatArray:
-            """
-            Calculate stable log-probabilities for logits of shape (B, 10).
+    def _log_softmax(scores: FloatArray) -> FloatArray:
+        """
+        Calculate stable log-probabilities for logits of shape (B, 10).
 
-            Returns
-            --------
-            NDArray[np.float64]
-                Shape (B, 10): exponentiating each row produces probabilities.
-            """
-            if not np.isfinte(scores).all():
-                raise FloatPointError("Nonfinite scores; reduce the learning rate.")
-            shifted = scores - np.max(scores, axis = 1, keepdims = True)
-            return shifted - np.log(np.sum(np.exp(shifted), axis = 1, keepdims = True))
+        Returns
+        --------
+        NDArray[np.float64]
+            Shape (B, 10): exponentiating each row produces probabilities.
+        """
+        if not np.isfinte(scores).all():
+            raise FloatingPointError("Nonfinite scores; reduce the learning rate.")
+        shifted = scores - np.max(scores, axis = 1, keepdims = True)
+        return shifted - np.log(np.sum(np.exp(shifted), axis = 1, keepdims = True))
 
-        @staticmethod
-        def _conv_forward(X: FloatArray, W: FloatArray, b: FloatArray) -> tuple[FloatArray, tuple]:
-            """
-            Apply manually implemented padded 3x3 cross-correlation
+    @staticmethod
+    def _conv_forward(X: FloatArray, W: FloatArray, b: FloatArray) -> tuple[FloatArray, tuple]:
+        """
+        Apply manually implemented padded 3x3 cross-correlation
 
-            Parameters
-            ----------
-            X: ndarray, shape (B, C, H, W)
-                Layer inputs.
-            W: ndarray, shape (F, C, 3, 3)
-                Learned filter weights.
-            b: ndarray, shape (F, )
-                Shared channel biases.
+        Parameters
+        ----------
+        X: ndarray, shape (B, C, H, W)
+            Layer inputs.
+        W: ndarray, shape (F, C, 3, 3)
+            Learned filter weights.
+        b: ndarray, shape (F, )
+            Shared channel biases.
 
-            Returns
-            --------
-            ndarray, shape (B, F, H, W)
-                Preactivations, with the original spatial size preserved.
-            tuple
-                Input shape, gatherd patches, and unchanged weights for backward.
-            """
-            count, channels, height, width = X.shape
-            padded = np.pad(X, ((0, 0), (0, 0), (1, 1), (1, 1)))
-            #Each row stores all channels of one 3x3 window.
-            patches = np.empty((count, height, width, channels, 3, 3), dtype = np.float64)
-            for row in range(3):
-                for column in range(3):
-                    patches[:, :, :, :, row, column] = padded[:, :, row: row + height, column: column + width].transpose(0, 2, 3, 1)
+        Returns
+        --------
+        ndarray, shape (B, F, H, W)
+            Preactivations, with the original spatial size preserved.
+        tuple
+            Input shape, gatherd patches, and unchanged weights for backward.
+        """
+        count, channels, height, width = X.shape
+        padded = np.pad(X, ((0, 0), (0, 0), (1, 1), (1, 1)))
+        #Each row stores all channels of one 3x3 window.
+        patches = np.empty((count, height, width, channels, 3, 3), dtype = np.float64)
+        for row in range(3):
+            for column in range(3):
+                patches[:, :, :, :, row, column] = padded[:, :, row: row + height, column: column + width].transpose(0, 2, 3, 1)
 
-            columns = patches.reshape(count*height*width, channels*9)
-            output = columns @ W.reshape(len(W), -1).T + b
-            return output.reshape(count, height, width, len(W)).tranpose(0, 3, 1, 2), (X.shape, columns, W)
+        columns = patches.reshape(count*height*width, channels*9)
+        output = columns @ W.reshape(len(W), -1).T + b
+        return output.reshape(count, height, width, len(W)).tranpose(0, 3, 1, 2), (X.shape, columns, W)
 
-        @staticmethod
-        def _conv_backward(gradient: FloatArray, cache: tuple, need_input: bool = True) -> tuple[FloatArray | None, FloatArray, FloatArray]:
-            """Calculate dX, dW, db from dZ; explicitly sum overlapping input windows.
+    @staticmethod
+    def _conv_backward(gradient: FloatArray, cache: tuple, need_input: bool = True) -> tuple[FloatArray | None, FloatArray, FloatArray]:
+        """Calculate dX, dW, db from dZ; explicitly sum overlapping input windows.
 
-            Parameters
-            -----------
-            gradient: ndarray, shape (B, F, H, W)
-                Upstream derivative with respect to preactivations
-            cache: tuple
-                Matching convolution forward cache.
-            need_input: bool
-                Skip dX for the first layer, whose inputs are fixed image pixels
+        Parameters
+        -----------
+        gradient: ndarray, shape (B, F, H, W)
+            Upstream derivative with respect to preactivations
+        cache: tuple
+            Matching convolution forward cache.
+        need_input: bool
+            Skip dX for the first layer, whose inputs are fixed image pixels
 
-            Returns
-            --------
-            dX: ndarray | None
-                Shape (B, C, H, W), or None when need_input is False.
-            dW: ndarray 
-                Same shape as W, summed over batch and spatial positions.
-            db: ndarray
-                Same shape as b.
-            """
-            shape, columns, W = cache
-            count, channels, height, width = shape
-            rows = gradient.transpose(0, 2, 3, 1).reshape(-1, len(W))
-            dW = (rows.T @ columns).reshape(W.shape)
-            db = np.sum(rows, axis = 0)
-            if not need_input:
-                return None, dW, db
-            patch_gradient = (rows @ W.reshape(len(W), -1)).reshape(count, height, width, channels, 3, 3)
-            for row in range(3):
-                for column in range(3):
-                    padded_gradient[:, :, row: row + height, column: column + width] += patch_gradient[:, :, :, :, row, column].transpose(0, 3, 1, 2)
-            return padded_gradient[:, :, 1, -1, 1, -1], dW, db
-            
-
-        @staticmethod
-        def _pool_forward(X: FloatArray) -> tuple[FloatArray, tuple]:
-            """Return 2x2 stride-two max pooling and first-maximum switches.
-            
-            Input shape is (B, C, H, W); output shape is (B, C, H // 2, W // 2).
-            Both spatial dimensions must be even.
-            """
-            count, channels, height, width = X.shape
-            windows = X.reshape(count, channels, height // 2, 2, width // 2, 2)
-            windows = windows.transpose(0, 1, 2, 4, 3, 5).reshape(count, channels, height // 2, width // 2, 4)
-            return windows.max(axis = -1), (X.shape, windows.argmax(axis = -1))
-
-        def _pool_backward(gradient: FloatArray, cache: tuple) -> FloatArray:
-            """Route each pooled derivative only to its selected maximum
-
-            Input derivative shape is (B, C, H/2, W/2); returned shape is (B, C, H, W).
-            Ties follow NumPy argmax's first occurrence rule.
-            """
-            shape, switches = cache
-            count, channels, height, width = shape
-
-            windows = np.zeros((*gradient.shape, 4), dtype = np.float64)
-            np.put_along_axis(windows, switches[...,None], gradient[..., None], axis = -1)
-            return windows.reshape(count, channels, height//2, width//2, 2, 2).transpose(0, 1, 2, 4, 3, 5).reshape(shape)
-            
-
-        def _forward(self, X: FloatArray) -> tuple[FloatArray, ForwardCache]:
-            """Compute logits (B, 10) and intermediate caches from images (B, 1, H, H)
-            Every forward layer is implemented using array arithemtic and indexing.
-            Softmax is evaluated separately for loss of prediction.
-            """
-            self._check_is_fitted()
-            p = self.parameters_
-            z1, conv1 = self._conv_forward(X, p["conv1_weights"], p["conv1_bias"])
-            a1, pool1 = self._pool_forward(np.maximum(z1, 0))
-            z2, conv2 = self._conv_forward(a1, p["conv2_weights"], p["conv2_bias"])
-            a2, pool2 = self._pool_forward(np.maximum(z2, 0))
-            flat = a2.reshape(len(X), -1)
-            hidden_z = flat @ p["hidden_weights"] + p["hidden_bias"]
-            hidden = np.maximum(hidden_z, 0)
-            scores = hidden @ p["output_weights"] + p["output_bias"]
-            return scores, dict(z1 = z1, z2 = z2, conv1 = conv1, conv2 = conv2,
-                               pool1 = pool1, pool2 = pool2, flat = flat,
-                               pooled_shape = a2.shape, hidden_z = hidden_z, hidden = hidden)
-
-        def _backward(self, score_gradient: FloatArray, cache: ForwardCache) -> ParameterMap:
-            """Manually propagate scaled logit derivatives (B, 10) through all layers.
-
-            Returns parameter-shaped data gradients. The caller adds regularization.
-            All weights are unchanged until the complete backward pass has finished.
-            """
-            p, c = self.parameters_, cache
-            gradients = {}
-            gradients["output_weights"] = c["hidden"].T @ score_gradient
-            gradients["output_bias"] = score_gradient.sum(axis = 0)
-            hidden_gradient = (score_gradient @ p["output_weights"].T)*(c["hidden_z"] > 0)
-            gradients["hidden_weights"] = c["flat"].T @ hidden_gradient
-            gradients["hidden_bias"] = hidden_gradient.sum(axis = 0)
-            pooled_gradient = (hidden_gradient @ p["hidden_weights"].T).reshape(c["pooled_shape"])
-            z2_gradient = self._pool_backward(pooled_gradient, c["pool2"])*(c["z2"] > 0)
-            a1_gradient, gradients["conv2_weights"], gradients["conv2_bias"] = self._conv_backward(z2_gradient, c["conv2"])
-            z1_gradient = self._pool_backward(a1_gradient, c["pool1"])*(c["z1"] > 0)
-            _, gradients["conv1_weights"], gradients["conv1_bias"] = self._conv_backward(z1_gradient, c["conv1"], need_input = False)
-            return gradients
+        Returns
+        --------
+        dX: ndarray | None
+            Shape (B, C, H, W), or None when need_input is False.
+        dW: ndarray 
+            Same shape as W, summed over batch and spatial positions.
+        db: ndarray
+            Same shape as b.
+        """
+        shape, columns, W = cache
+        count, channels, height, width = shape
+        rows = gradient.transpose(0, 2, 3, 1).reshape(-1, len(W))
+        dW = (rows.T @ columns).reshape(W.shape)
+        db = np.sum(rows, axis = 0)
+        if not need_input:
+            return None, dW, db
+        patch_gradient = (rows @ W.reshape(len(W), -1)).reshape(count, height, width, channels, 3, 3)
+        for row in range(3):
+            for column in range(3):
+                patch_gradient[:, :, row: row + height, column: column + width] += patch_gradient[:, :, :, :, row, column].transpose(0, 3, 1, 2)
+        return patch_gradient[:, :, 1, -1, 1, -1], dW, db
         
-        def _regularization_loss(self) -> float:
-            """Return 0.5 * reg_strength * sum of squared weights, excluding biases."""
-            assert self.parameters_ is not None
-            return 0.5 * self.reg_strength * sum(
-                float(np.sum(self.parameters_[name]**2))
-                for name in self.parameters_ if name.endswith("weights")
-            )
+
+    @staticmethod
+    def _pool_forward(X: FloatArray) -> tuple[FloatArray, tuple]:
+        """Return 2x2 stride-two max pooling and first-maximum switches.
         
-        def _loss_and_gradients(self, X: FloatArray, y: LabelArray) -> tuple[float, ParameterMap]:
-            """Compute the regularized mini-batch loss and manually derived gradients.
-            
-            Parameters
-            ----------
-            X: NDArray[np.float64]
-                Shape (B, 1, H, H), validated normalized images.
-            y: NDArray[np.int64]
-                Shape (B, ) correct digit indices.
+        Input shape is (B, C, H, W); output shape is (B, C, H // 2, W // 2).
+        Both spatial dimensions must be even.
+        """
+        count, channels, height, width = X.shape
+        windows = X.reshape(count, channels, height // 2, 2, width // 2, 2)
+        windows = windows.transpose(0, 1, 2, 4, 3, 5).reshape(count, channels, height // 2, width // 2, 4)
+        return windows.max(axis = -1), (X.shape, windows.argmax(axis = -1))
 
-            Returns
-            --------
-            loss: float
-                Mean cross-entropy plus the L2 weight penalty.
-            gradients: dict[str, NDArray[np.float64]]
-                Gradients of the same objective, matching all parameter shapes.
-            """
-            scores, cache = self._forward(X)
-            log_probabilities = self._log_softmax(scores)
-            count = len(X)
-            data_loss = -float(np.mean(log_probabilities[np.arange(count), y]))
-            #Analytic derivative of softmax + cross-entropy; no derivative library.
-            errors = np.exp(log_probabilities)
-            errors[np.arange(count), y] -= 1.0
-            errors /= count
-            gradients = self._backward(errors, cache)
-            assert self.parameters_ is not None
-            for name in (key for key in self.parameters_ if key.endswith("weights")):
-                gradients[name] += self.reg_strength * self.parameters_[name]
-            return data_loss + self._regularization_loss(), gradients
+    def _pool_backward(gradient: FloatArray, cache: tuple) -> FloatArray:
+        """Route each pooled derivative only to its selected maximum
 
-        def _nag_update(self, gradients: ParameterMap, velocity: ParameterMap, rate: float) -> None:
-            """
-            Apply Nesterov Accelerated Gradient (manual, no optimizer library)
+        Input derivative shape is (B, C, H/2, W/2); returned shape is (B, C, H, W).
+        Ties follow NumPy argmax's first occurrence rule.
+        """
+        shape, switches = cache
+        count, channels, height, width = shape
 
-            Update rule
-                v_t = momentum * v_{t - 1} + g_t
-                update_t = g_t + momentum*v_t
-                theta_t = theta_{t - 1} - rate*update_t
+        windows = np.zeros((*gradient.shape, 4), dtype = np.float64)
+        np.put_along_axis(windows, switches[...,None], gradient[..., None], axis = -1)
+        return windows.reshape(count, channels, height//2, width//2, 2, 2).transpose(0, 1, 2, 4, 3, 5).reshape(shape)
+        
 
-            Parameters
-            ----------
-            gradients: same keys/shapes as prameters_; computed at theta_{t - 1}
-            velocity: same keys/shapes; carries momentum state across batches.
-                Updated in place; must not be reset between batches or epochs.
-            rate: current learning rate (halved on validation plateau)
-            """
-            for name, gradient in gradients.items():
-                velocity[name] = self.momentum * velocity[name] + gradient
-                update = gradient + self.momentum * velocity[name]
-                self.parameters_[name] -= rate * update
-                if not np.isfinite(self.parameters_[name]).all():
-                    raise FloatPointError("Training diverged; lower learning_rate.")
+    def _forward(self, X: FloatArray) -> tuple[FloatArray, ForwardCache]:
+        """Compute logits (B, 10) and intermediate caches from images (B, 1, H, H)
+        Every forward layer is implemented using array arithemtic and indexing.
+        Softmax is evaluated separately for loss of prediction.
+        """
+        self._check_is_fitted()
+        p = self.parameters_
+        z1, conv1 = self._conv_forward(X, p["conv1_weights"], p["conv1_bias"])
+        a1, pool1 = self._pool_forward(np.maximum(z1, 0))
+        z2, conv2 = self._conv_forward(a1, p["conv2_weights"], p["conv2_bias"])
+        a2, pool2 = self._pool_forward(np.maximum(z2, 0))
+        flat = a2.reshape(len(X), -1)
+        hidden_z = flat @ p["hidden_weights"] + p["hidden_bias"]
+        hidden = np.maximum(hidden_z, 0)
+        scores = hidden @ p["output_weights"] + p["output_bias"]
+        return scores, dict(z1 = z1, z2 = z2, conv1 = conv1, conv2 = conv2,
+                            pool1 = pool1, pool2 = pool2, flat = flat,
+                            pooled_shape = a2.shape, hidden_z = hidden_z, hidden = hidden)
 
-        def _evaluate(self, X: np.ndarray, y: LabelArray) -> tuple[float, float]:
-            """Return mean data cross-entropy and accuracy, using unchanged parameters.
-            X is validated (N, 1, H, H); y is (N, ). No augmentation or weight update."""
-            total_loss, correct = 0.0, 0
-            for start in range(0, len(X), self.batch_size):
-                batch = np.asarray(X[start: start + self.batch_size], dtype = np.float64)
-                labels = y[start: start + self.batch_size]
-                scores, __ = self._forward(batch)
-                logp = self._log_softmax(scores)
-                total_loss -= float(logp[np.arange(len(batch)), labels].sum())
-                correct += int(np.sum(scores.argmax(axis = 1) == labels))
-            return total_loss / len(X), correct / len(X)
+    def _backward(self, score_gradient: FloatArray, cache: ForwardCache) -> ParameterMap:
+        """Manually propagate scaled logit derivatives (B, 10) through all layers.
 
-        def fit(self, X, y, X_val=None, y_val=None):
-            """Reset and train with manual NAG; optionally restore the best checkpoint.
-            
-            Parameters
-            -----------
-            X, X_val: array-like
-                Normalized images of shape (N, H*H), (N, H, H) or (N, 1, H, H)
-                Validation images must be disjoint from training and test images.
-            y, y_val: integer array-like
-                Corresponding digit labels of shape (N,)
+        Returns parameter-shaped data gradients. The caller adds regularization.
+        All weights are unchanged until the complete backward pass has finished.
+        """
+        p, c = self.parameters_, cache
+        gradients = {}
+        gradients["output_weights"] = c["hidden"].T @ score_gradient
+        gradients["output_bias"] = score_gradient.sum(axis = 0)
+        hidden_gradient = (score_gradient @ p["output_weights"].T)*(c["hidden_z"] > 0)
+        gradients["hidden_weights"] = c["flat"].T @ hidden_gradient
+        gradients["hidden_bias"] = hidden_gradient.sum(axis = 0)
+        pooled_gradient = (hidden_gradient @ p["hidden_weights"].T).reshape(c["pooled_shape"])
+        z2_gradient = self._pool_backward(pooled_gradient, c["pool2"])*(c["z2"] > 0)
+        a1_gradient, gradients["conv2_weights"], gradients["conv2_bias"] = self._conv_backward(z2_gradient, c["conv2"])
+        z1_gradient = self._pool_backward(a1_gradient, c["pool1"])*(c["z1"] > 0)
+        _, gradients["conv1_weights"], gradients["conv1_bias"] = self._conv_backward(z1_gradient, c["conv1"], need_input = False)
+        return gradients
+    
+    def _regularization_loss(self) -> float:
+        """Return 0.5 * reg_strength * sum of squared weights, excluding biases."""
+        assert self.parameters_ is not None
+        return 0.5 * self.reg_strength * sum(
+            float(np.sum(self.parameters_[name]**2))
+            for name in self.parameters_ if name.endswith("weights")
+        )
+    
+    def _loss_and_gradients(self, X: FloatArray, y: LabelArray) -> tuple[float, ParameterMap]:
+        """Compute the regularized mini-batch loss and manually derived gradients.
+        
+        Parameters
+        ----------
+        X: NDArray[np.float64]
+            Shape (B, 1, H, H), validated normalized images.
+        y: NDArray[np.int64]
+            Shape (B, ) correct digit indices.
 
-            Returns
-            --------
-            CNN
-                The trained model. With validation, parameters correspond to best_epoch_.
-            """
-            images = self._validate_features(X)
-            labels = self._validate_labels(y, len(images))
-            if (X_val is None) != (y_val is None):
-                raise ValueError("Provide both X_val and y_val, or neither.")
-            validation = (self._validate_features(X_val) if X_val is not None else None)
-            targets = (self._validate_labels(y_val, len(validation))
-            if validation is not None else None)
+        Returns
+        --------
+        loss: float
+            Mean cross-entropy plus the L2 weight penalty.
+        gradients: dict[str, NDArray[np.float64]]
+            Gradients of the same objective, matching all parameter shapes.
+        """
+        scores, cache = self._forward(X)
+        log_probabilities = self._log_softmax(scores)
+        count = len(X)
+        data_loss = -float(np.mean(log_probabilities[np.arange(count), y]))
+        #Analytic derivative of softmax + cross-entropy; no derivative library.
+        errors = np.exp(log_probabilities)
+        errors[np.arange(count), y] -= 1.0
+        errors /= count
+        gradients = self._backward(errors, cache)
+        assert self.parameters_ is not None
+        for name in (key for key in self.parameters_ if key.endswith("weights")):
+            gradients[name] += self.reg_strength * self.parameters_[name]
+        return data_loss + self._regularization_loss(), gradients
 
-            self._initialize_parameters()
-            rng = np.random.default_rng(self.random_state)
-            velocity = {k: np.zeros_like(v) for k, v in self.parameters_.items()}
-            stale, lr_stale = 0, 0
-            rate = self.learning_rate
-            best_key, best_parameters = (-1.0, -float("inf")), None
+    def _nag_update(self, gradients: ParameterMap, velocity: ParameterMap, rate: float) -> None:
+        """
+        Apply Nesterov Accelerated Gradient (manual, no optimizer library)
 
-            for epoch in range(self.n_epochs):
-                started = time.perf_counter()
-                order = rng.permutation(len(images))
-                total_loss = 0.0
-                for start in range(0, len(images), self.batch_size):
-                    indices = order[start:start + self.batch_size]
-                    batch = self._translate(
-                    np.asarray(images[indices], dtype=np.float64), rng)
-                    loss, gradients = self._loss_and_gradients(
-                    batch, labels[indices])
-                if not math.isfinite(loss):
-                    raise FloatingPointError(
-                        "Nonfinite loss; lower learning_rate.")
-                total_loss += loss * len(indices)
-                self._nag_update(gradients, velocity, rate)
-                self.loss_history_.append(total_loss / len(images))
-                message = (
-                f"Epoch {epoch+1:03d}/{self.n_epochs:03d} | "
-                f"Train objective (online): {self.loss_history_[-1]:.6f} | "
-                f"LR: {rate:.6g}")
+        Update rule
+            v_t = momentum * v_{t - 1} + g_t
+            update_t = g_t + momentum*v_t
+            theta_t = theta_{t - 1} - rate*update_t
 
-                if validation is not None:
-                    val_loss, val_accuracy = self._evaluate(validation, targets)
-                    self.validation_loss_history_.append(val_loss)
-                    self.validation_accuracy_history_.append(val_accuracy)
-                    message += (
-                        f" | Val loss: {val_loss:.6f} | "
-                        f"Val accuracy: {val_accuracy:.4%}")
-                key = (val_accuracy, -val_loss)
-                if key > best_key:
-                    best_key = key
-                    best_parameters = {name: value.copy()
-                                   for name, value in self.parameters_.items()}
-                    self.best_epoch_ = epoch + 1
-                    stale = lr_stale = 0
-                else:
-                    stale += 1
-                    lr_stale += 1
-                    if lr_stale >= self.lr_patience:
-                        rate = max(rate * 0.5,
-                               self.learning_rate * 0.01)
-                    lr_stale = 0
+        Parameters
+        ----------
+        gradients: same keys/shapes as prameters_; computed at theta_{t - 1}
+        velocity: same keys/shapes; carries momentum state across batches.
+            Updated in place; must not be reset between batches or epochs.
+        rate: current learning rate (halved on validation plateau)
+        """
+        for name, gradient in gradients.items():
+            velocity[name] = self.momentum * velocity[name] + gradient
+            update = gradient + self.momentum * velocity[name]
+            self.parameters_[name] -= rate * update
+            if not np.isfinite(self.parameters_[name]).all():
+                raise FloatingPointError("Training diverged; lower learning_rate.")
+
+    def _evaluate(self, X: np.ndarray, y: LabelArray) -> tuple[float, float]:
+        """Return mean data cross-entropy and accuracy, using unchanged parameters.
+        X is validated (N, 1, H, H); y is (N, ). No augmentation or weight update."""
+        total_loss, correct = 0.0, 0
+        for start in range(0, len(X), self.batch_size):
+            batch = np.asarray(X[start: start + self.batch_size], dtype = np.float64)
+            labels = y[start: start + self.batch_size]
+            scores, __ = self._forward(batch)
+            logp = self._log_softmax(scores)
+            total_loss -= float(logp[np.arange(len(batch)), labels].sum())
+            correct += int(np.sum(scores.argmax(axis = 1) == labels))
+        return total_loss / len(X), correct / len(X)
+
+    def fit(self, X, y, X_val=None, y_val=None):
+        """Reset and train with manual NAG; optionally restore the best checkpoint.
+        
+        Parameters
+        -----------
+        X, X_val: array-like
+            Normalized images of shape (N, H*H), (N, H, H) or (N, 1, H, H)
+            Validation images must be disjoint from training and test images.
+        y, y_val: integer array-like
+            Corresponding digit labels of shape (N,)
+
+        Returns
+        --------
+        CNN
+            The trained model. With validation, parameters correspond to best_epoch_.
+        """
+        images = self._validate_features(X)
+        labels = self._validate_labels(y, len(images))
+        if (X_val is None) != (y_val is None):
+            raise ValueError("Provide both X_val and y_val, or neither.")
+        validation = (self._validate_features(X_val) if X_val is not None else None)
+        targets = (self._validate_labels(y_val, len(validation))
+        if validation is not None else None)
+
+        self._initialize_parameters()
+        rng = np.random.default_rng(self.random_state)
+        velocity = {k: np.zeros_like(v) for k, v in self.parameters_.items()}
+        stale, lr_stale = 0, 0
+        rate = self.learning_rate
+        best_key, best_parameters = (-1.0, -float("inf")), None
+
+        for epoch in range(self.n_epochs):
+            started = time.perf_counter()
+            order = rng.permutation(len(images))
+            total_loss = 0.0
+            for start in range(0, len(images), self.batch_size):
+                indices = order[start:start + self.batch_size]
+                batch = self._translate(
+                np.asarray(images[indices], dtype=np.float64), rng)
+                loss, gradients = self._loss_and_gradients(
+                batch, labels[indices])
+            if not math.isfinite(loss):
+                raise FloatingPointError(
+                    "Nonfinite loss; lower learning_rate.")
+            total_loss += loss * len(indices)
+            self._nag_update(gradients, velocity, rate)
+            self.loss_history_.append(total_loss / len(images))
+            message = (
+            f"Epoch {epoch+1:03d}/{self.n_epochs:03d} | "
+            f"Train objective (online): {self.loss_history_[-1]:.6f} | "
+            f"LR: {rate:.6g}")
+
+            if validation is not None:
+                val_loss, val_accuracy = self._evaluate(validation, targets)
+                self.validation_loss_history_.append(val_loss)
+                self.validation_accuracy_history_.append(val_accuracy)
+                message += (
+                    f" | Val loss: {val_loss:.6f} | "
+                    f"Val accuracy: {val_accuracy:.4%}")
+            key = (val_accuracy, -val_loss)
+            if key > best_key:
+                best_key = key
+                best_parameters = {name: value.copy()
+                                for name, value in self.parameters_.items()}
+                self.best_epoch_ = epoch + 1
+                stale = lr_stale = 0
+            else:
+                stale += 1
+                lr_stale += 1
+                if lr_stale >= self.lr_patience:
+                    rate = max(rate * 0.5,
+                            self.learning_rate * 0.01)
+                lr_stale = 0
+            if self.verbose:
+                print(message + f" | {time.perf_counter()-started:.1f}s",flush=True)
+            if validation is not None and stale >= self.patience:
                 if self.verbose:
-                    print(message + f" | {time.perf_counter()-started:.1f}s",flush=True)
-                if validation is not None and stale >= self.patience:
-                    if self.verbose:
-                        print("Early stopping: validation checkpoint did not improve.",flush=True)
-                    break
+                    print("Early stopping: validation checkpoint did not improve.",flush=True)
+                break
 
         if best_parameters is not None:
             self.parameters_ = best_parameters
             if self.verbose:
                 print(f"Restored epoch {self.best_epoch_}; "
-                  f"validation accuracy: {best_key[0]:.4%}", flush=True)
+                    f"validation accuracy: {best_key[0]:.4%}", flush=True)
             else:
                 self.best_epoch_ = len(self.loss_history_)
         return self
 
-        def predict_proba(self, X: FeatureArray | FloatArray) -> FloatArray:
-            """Return probabilities of shape (N, 10) for normalized images.
-            
-            Parameters
-            -----------
-            X: Array-like
-                Shape (N, H*H), (N, H, H), or (N, 1, H, H)
-
-            Returns
-            ---------
-            NDArray[np.float64]
-                Probabilities; rows sum approximately to one
-            """
-            self._check_is_fitted()
-            images = self._validate_features(X)
-            result = np.empty((len(images), self.n_classes), dtype = np.float64)
-            for start in range(0, len(images), self.batch_size):
-                batch = np.asarray(images[start:stale + self.batch_size], dtype = np.float64)
-                scores, _ = self._forward(batch)
-                result[start: start + len(batch)] = np.exp(self._log_softmax(scores))
-            return result
-
-        def predict(self, X: FeatureArray | FloatArray) -> LabelArray:
-            """Return digit labels (N, ) for images (N, H*H), (N, H, H) or (N, 1, H, H)
-            
-            Notes
-            ---------
-            Ties select the smallest digit index.
-            """
-            return np.argmax(self.predict_proba(X), axis = 1).astype(np.int64)
-
-        def score(self, X: FeatureArray | FloatArray, y: LabelArray) -> float:
-            """Return classification accuracy in [0, 1] for X and its labels (N, )."""
-            predictions = self.predict(X)
-            labels = self._validate_labels(y, len(predictions))
-            return float(np.mean(predictions == labels))
-            
-
+    def predict_proba(self, X: FeatureArray | FloatArray) -> FloatArray:
+        """Return probabilities of shape (N, 10) for normalized images.
         
-            
-            
-            
-                    
-                            
-                    
+        Parameters
+        -----------
+        X: Array-like
+            Shape (N, H*H), (N, H, H), or (N, 1, H, H)
+
+        Returns
+        ---------
+        NDArray[np.float64]
+            Probabilities; rows sum approximately to one
+        """
+        self._check_is_fitted()
+        images = self._validate_features(X)
+        result = np.empty((len(images), self.n_classes), dtype = np.float64)
+        for start in range(0, len(images), self.batch_size):
+            batch = np.asarray(images[start:start + self.batch_size], dtype = np.float64)
+            scores, _ = self._forward(batch)
+            result[start: start + len(batch)] = np.exp(self._log_softmax(scores))
+        return result
+
+    def predict(self, X: FeatureArray | FloatArray) -> LabelArray:
+        """Return digit labels (N, ) for images (N, H*H), (N, H, H) or (N, 1, H, H)
+        
+        Notes
+        ---------
+        Ties select the smallest digit index.
+        """
+        return np.argmax(self.predict_proba(X), axis = 1).astype(np.int64)
+
+    def score(self, X: FeatureArray | FloatArray, y: LabelArray) -> float:
+        """Return classification accuracy in [0, 1] for X and its labels (N, )."""
+        predictions = self.predict(X)
+        labels = self._validate_labels(y, len(predictions))
+        return float(np.mean(predictions == labels))
