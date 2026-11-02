@@ -156,7 +156,7 @@ class CNN:
         }
         for name, shape in shapes.items():
             fan_in = int(np.prod(shape[1:])) if name.startswith("conv") else shape[0]
-            scale = np.sqrt((1.0 if name = "output" else 2.0) / fan_in)
+            scale = np.sqrt((1.0 if name == "output" else 2.0) / fan_in)
             self.parameters_[name + "_weights"] = rng.normal(0, scale, shape)
             width = shape[0] if name.startswith("conv") else shape[1]
             self.parameters_[name + "_bias"] = np.zeros(width, dtype = np.float64)
@@ -193,6 +193,7 @@ class CNN:
                 raise ValueError(
                     f"Input has {c} channels; (N, H, W) form only supports grayscale. "
                     f"Use (N, {c}, H, W) instead."
+                )
             values = values[:, None, :, :]
         if values.ndim != 4 or values.shape[1:] != (c, width, width) or len(values) == 0:
             raise ValueError(
@@ -267,7 +268,7 @@ class CNN:
             return output.reshape(count, height, width, len(W)).tranpose(0, 3, 1, 2), (X.shape, columns, W)
 
         @staticmethod
-        def _conv_backward(gradient: FloatArray, cache: tuple, need_input: bool = True) -> tuple[FloatArray | None, FloatArray, FloatArray:
+        def _conv_backward(gradient: FloatArray, cache: tuple, need_input: bool = True) -> tuple[FloatArray | None, FloatArray, FloatArray]:
             """Calculate dX, dW, db from dZ; explicitly sum overlapping input windows.
 
             Parameters
