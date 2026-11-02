@@ -55,7 +55,7 @@ class MLP:
     def __init__(
             self,
             learning_rate: float = 0.1,
-            n_epochs: int = 30,
+            n_epochs: int = 20,
             batch_size: int = 256,
             momentum: float = 0.0,
             weight_decay: float = 0.0,
