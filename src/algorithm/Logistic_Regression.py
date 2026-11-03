@@ -2,12 +2,7 @@
 import numpy as np
 #Import NDArray to annotate the element types of NumPy arrays
 from numpy.typing import NDArray
-<<<<<<< HEAD
 from .augmentation import augment_random
-=======
-import time
-
->>>>>>> branch-DomLee
 #Input features produced by the preprocessing code use float32
 FeatureArray = NDArray[np.float32]
 
@@ -393,8 +388,6 @@ class LogisticRegression:
         ------
         Calling fit again resets the weights, biases, and loss history
         """
-        #Start timing the training process
-        start_time = time.time()
         #Convert features to float64 for the numerical calculations.
         #This allocates a new array when the input uses float32
         X_array: FloatArray = np.asarray(X, dtype = np.float64)
@@ -517,8 +510,6 @@ class LogisticRegression:
                     f"| Training loss: {epoch_loss: .6f}"
                 )
         #Return the trained instance
-        end_time = time.time()
-        self.count_training_time = end_time - start_time
         return self
 
     def predict_proba(
