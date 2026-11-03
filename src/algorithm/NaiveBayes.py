@@ -1,5 +1,8 @@
 
 import numpy as np
+import datetime
+import time
+
 class NaiveBayes:
     """
     A generic Naive Bayes classifier supporting different feature distributions.
@@ -57,6 +60,7 @@ class NaiveBayes:
         NaiveBayes
             The fitted classifier.
         """
+        start_time = time.time()  # Start timing the training process
         n_samples, n_features = X.shape
         self.classes = np.unique(y)
         n_classes = len(self.classes)
@@ -78,6 +82,9 @@ class NaiveBayes:
 
             # Estimate the prior probability of the current class.
             self.prior[idx] = X_c.shape[0] / n_samples
+
+        end_time = time.time()
+        self.count_training_time = end_time - start_time
 
         return self
 

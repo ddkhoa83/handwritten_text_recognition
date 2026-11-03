@@ -1,5 +1,6 @@
 
 import numpy as np
+import time
 from sklearn.model_selection import KFold
 
 
@@ -54,7 +55,7 @@ class ManualStackingEnsemble:
         self.meta_model = meta_model
         self.cv_folds = cv_folds
 
-    def fit(self, X, y):
+    def fit(self, X, y, X_test, y_test):
         """
         Fit the stacking ensemble using the training data.
 
@@ -74,6 +75,7 @@ class ManualStackingEnsemble:
         ManualStackingEnsemble
             The fitted stacking ensemble.
         """
+        start_time = time.time()  # Start timing the training process
         # Initialize shuffled K-fold cross-validation.
         kf = KFold(
             n_splits=self.cv_folds,
@@ -99,10 +101,13 @@ class ManualStackingEnsemble:
                 X_train_fold = X[train_idx]
                 X_val_fold = X[val_idx]
                 y_train_fold = y[train_idx]
-
-                # Train the base model on the current training fold.
-                model.fit(X_train_fold, y_train_fold)
-
+                y_val_fold = y[val_idx]
+            # Train the base model on the current training fold.
+                if type(model).__name__ == 'MLP': # Thay 'MLP' bằng đúng tên class MLP của cậu
+             # Truyền thêm tham số validation tùy theo cách cậu định nghĩa trong class MLP
+                    model.fit(X_train_fold, y_train_fold, X_val_fold,y_val_fold) 
+                else:
+                    model.fit(X_train_fold, y_train_fold)
                 # Predict class probabilities for the validation fold.
                 preds = model.predict_proba(X_val_fold)
 
@@ -112,13 +117,18 @@ class ManualStackingEnsemble:
                 oof_features[val_idx, start_col:end_col] = preds
 
             # Refit the base model on the complete training dataset.
-            model.fit(X, y)
+            if type(model).__name__ == 'MLP': # Thay 'MLP' bằng đúng tên class MLP của cậu
+                model.fit(X, y,X_test,y_test)  # Truyền thêm tham số validation tùy theo cách cậu định nghĩa trong class MLP
+            else:
+                model.fit(X, y)
 
         # Train the meta-learner using the OOF prediction features.
         self.meta_model.fit(oof_features, y)
+        end_time = time.time()  # End timing the training process
+        self.count_training_time = end_time - start_time
 
         return self
-
+    
     def predict(self, X):
         """
         Predict class labels for input samples.
