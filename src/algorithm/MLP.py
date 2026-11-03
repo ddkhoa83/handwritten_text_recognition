@@ -63,7 +63,7 @@ class MLP:
             activation: str = "relu",
             p_drop: float = 0.0,
             init: str = "he",
-            verbose: bool = True
+            verbose: bool = False
         ) -> None:
             """
             Validate configuration values and initialize model attributes.

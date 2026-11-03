@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
-
+from .augmentation import augment_random
 FeatureArray = NDArray[np.float32]
 FloatArray = NDArray[np.float64]
 LabelArray = NDArray[np.int64]
@@ -80,7 +80,7 @@ class MPL:
                hidden1: int = 128, hidden2: int = 64,
                image_size: int = 28, shift_pixels: int = 0,
                patience: int = 6, lr_patience: int = 2,
-               random_state: int = 42, verbose: bool = True) -> None:
+               random_state: int = 42, verbose: bool = True, has_aug_data: bool = True) -> None:
         """Validate constructor parameters and create an unfitted model."""
         for name, value in (("learning_rate", learning_rate), ("reg_strength", reg_strength)):
             if not math.isfinite(value) or value < 0 or (name == "learning_rate" and value == 0):
@@ -123,6 +123,7 @@ class MPL:
         self.validation_accuracy_history_: list[float] = []
         self.best_epoch_: int | None = None
         self.n_features_ = image_size * image_size
+        self.has_aug_data = has_aug_data
 
     def _initialize_parameters(self) -> None:
         """Initialize weights using He scaling and reset training history."""
@@ -303,6 +304,7 @@ class MPL:
             for start in range(0, len(X), self.batch_size):
                 indices = order[start: start + self.batch_size]
                 batch = X[indices]
+                if self.has_aug_data: batch = augment_random(batch, rng = rng)
                 loss, gradients = self._loss_and_gradients(batch, y[indices])
                 if not math.isfinite(loss):
                     raise FloatingPoinError("Nonfinite loss; lower learning_rate.")

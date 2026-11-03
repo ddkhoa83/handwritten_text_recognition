@@ -4,8 +4,7 @@ Architecture (default):
     (N,1,28,28) -> Conv16/ReLU/MaxPool -> Conv32/ReLU/MaxPool
     -> Flatten(1568) -> Dense128/ReLU -> Dense10/Softmax.
 
-No PyTorch, TensorFlow, autograd, or pretrained layers are used.
-The optimizer is an explicit Nesterov-momentum update.
+The optimizer is a manually implemented Adam update.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ import math
 import struct
 import time
 from pathlib import Path
-
+from .augmentation import augment_random
 import numpy as np
 from numpy.typing import NDArray
 
@@ -39,7 +38,7 @@ class CNN:
 
     def __init__(
         self,
-        learning_rate: float = 0.01,
+        learning_rate: float = 0.001,
         n_epochs: int = 20,
         batch_size: int = 64,
         reg_strength: float = 0.0001,
@@ -47,21 +46,26 @@ class CNN:
         n_filters2: int = 32,
         hidden_units: int = 128,
         image_size: int = 28,
-        shift_pixels: int = 2,
         patience: int = 6,
         lr_patience: int = 2,
         random_state: int = 42,
         verbose: bool = True,
-        momentum: float = 0.9,
+        beta1: float = 0.9,
         n_classes: int = 10,
         in_channels: int = 1,
+        beta2: float = 0.999,
+        epsilon: float = 1e-8,
+        has_aug_data: bool = True
     ) -> None:
         for name, value in (("learning_rate", learning_rate),
                             ("reg_strength", reg_strength)):
             if not math.isfinite(value) or value < 0 or (name == "learning_rate" and value == 0):
                 raise ValueError(f"Invalid {name}: {value}.")
-        if not math.isfinite(momentum) or not 0 <= momentum < 1:
-            raise ValueError("momentum must be finite and in [0, 1).")
+        for name, value in (("beta1", beta1), ("beta2", beta2)):
+            if not math.isfinite(value) or not 0 <= value < 1:
+                raise ValueError(f"{name} must be finite and in [0, 1).")
+        if not math.isfinite(epsilon) or epsilon <= 0:
+            raise ValueError("epsilon must be finite and positive.")
         for name, value in (
             ("n_epochs", n_epochs), ("batch_size", batch_size),
             ("n_filters", n_filters), ("n_filters2", n_filters2),
@@ -72,8 +76,6 @@ class CNN:
                 raise ValueError(f"{name} must be a positive integer.")
         if image_size % 4 != 0:
             raise ValueError("image_size must be divisible by four.")
-        if type(shift_pixels) is not int or not 0 <= shift_pixels < image_size:
-            raise ValueError("shift_pixels must be an integer in [0, image_size).")
         if type(random_state) is not int or random_state < 0:
             raise ValueError("random_state must be a nonnegative integer.")
         if type(verbose) is not bool:
@@ -84,7 +86,9 @@ class CNN:
             raise ValueError("in_channels must be a positive integer.")
 
         self.learning_rate = float(learning_rate)
-        self.momentum = float(momentum)
+        self.beta1 = float(beta1)
+        self.beta2 = float(beta2)
+        self.epsilon = float(epsilon)
         self.n_epochs = n_epochs
         self.batch_size = batch_size
         self.reg_strength = float(reg_strength)
@@ -92,7 +96,6 @@ class CNN:
         self.n_filters2 = n_filters2
         self.hidden_units = hidden_units
         self.image_size = image_size
-        self.shift_pixels = shift_pixels
         self.patience = patience
         self.lr_patience = lr_patience
         self.random_state = random_state
@@ -107,6 +110,7 @@ class CNN:
         self.validation_loss_history_: list[float] = []
         self.validation_accuracy_history_: list[float] = []
         self.best_epoch_: int | None = None
+        self.has_aug_data: bool = has_aug_data
 
     def _initialize_parameters(self) -> None:
         """Initialize He-scaled weights and reset fitted statistics."""
@@ -253,27 +257,6 @@ class CNN:
             count, channels, height // 2, width // 2, 2, 2
         ).transpose(0, 1, 2, 4, 3, 5).reshape(shape)
 
-    @staticmethod
-    def _translate(X: FloatArray, rng: np.random.Generator, shift_pixels: int) -> FloatArray:
-        """Shift each (C,H,W) training image by random integer offsets.
-
-        Pixels outside the image are dropped; uncovered pixels are set to zero.
-        No wrap-around or interpolation is performed.
-        """
-        if shift_pixels == 0:
-            return X
-        count, _, height, width = X.shape
-        result = np.zeros_like(X)
-        offsets = rng.integers(-shift_pixels, shift_pixels + 1, size=(count, 2))
-        for index, (dy, dx) in enumerate(offsets):
-            source_y, source_x = max(0, -dy), max(0, -dx)
-            target_y, target_x = max(0, dy), max(0, dx)
-            overlap_h, overlap_w = height - abs(dy), width - abs(dx)
-            result[
-                index, :, target_y:target_y + overlap_h, target_x:target_x + overlap_w
-            ] = X[index, :, source_y:source_y + overlap_h, source_x:source_x + overlap_w]
-        return result
-
     def _forward(self, X: FloatArray) -> tuple[FloatArray, ForwardCache]:
         """Evaluate network logits and collect caches for manual backward."""
         self._check_is_fitted()
@@ -340,18 +323,20 @@ class CNN:
                 gradients[name] += self.reg_strength * weights
         return data_loss + self._regularization_loss(), gradients
 
-    def _nag_update(self, gradients: ParameterMap, velocity: ParameterMap, rate: float) -> None:
-        """Apply Nesterov momentum with the PyTorch-style buffer convention.
-
-        buffer = momentum * buffer + grad
-        correction = grad + momentum * buffer
-        parameter = parameter - rate * correction
-        """
+    def _adam_update(
+        self, gradients: ParameterMap, first: ParameterMap, second: ParameterMap,
+        step: int, rate: float,
+    ) -> None:
+        """Update all weights and biases with bias-corrected Adam moments."""
         assert self.parameters_ is not None
+        correction1 = 1 - self.beta1 ** step
+        correction2 = 1 - self.beta2 ** step
         for name, gradient in gradients.items():
-            velocity[name] = self.momentum * velocity[name] + gradient
-            update = gradient + self.momentum * velocity[name]
-            self.parameters_[name] -= rate * update
+            first[name] = self.beta1 * first[name] + (1 - self.beta1) * gradient
+            second[name] = self.beta2 * second[name] + (1 - self.beta2) * gradient ** 2
+            mean = first[name] / correction1
+            mean_square = second[name] / correction2
+            self.parameters_[name] -= rate * mean / (np.sqrt(mean_square) + self.epsilon)
             if not np.isfinite(self.parameters_[name]).all():
                 raise FloatingPointError("Training diverged; lower learning_rate.")
 
@@ -375,7 +360,6 @@ class CNN:
         y_val: LabelArray | None = None,
     ) -> CNN:
         """Train on mini-batches; optionally select best validation checkpoint.
-
         Validation inputs must be disjoint from both training and test data.
         Without validation, train for all epochs and keep the final weights.
         """
@@ -389,7 +373,9 @@ class CNN:
         self._initialize_parameters()
         assert self.parameters_ is not None
         rng = np.random.default_rng(self.random_state)
-        velocity = {name: np.zeros_like(value) for name, value in self.parameters_.items()}
+        step = 0
+        second = {name: np.zeros_like(value) for name, value in self.parameters_.items()}
+        first = {name: np.zeros_like(value) for name, value in self.parameters_.items()}
         stale, lr_stale = 0, 0
         rate = self.learning_rate
         best_key = (-1.0, -float("inf"))
@@ -402,13 +388,14 @@ class CNN:
             for start in range(0, len(images), self.batch_size):
                 indices = order[start:start + self.batch_size]
                 batch = np.asarray(images[indices], dtype=np.float64)
-                batch = self._translate(batch, rng, self.shift_pixels)
+                if self.has_aug_data == True: batch = augment_random(batch, rng = rng, max_angle = 20)
                 loss, gradients = self._loss_and_gradients(batch, labels[indices])
                 if not math.isfinite(loss):
                     raise FloatingPointError("Nonfinite loss; lower learning_rate.")
                 total_loss += loss * len(indices)
                 # IMPORTANT: update parameters for *each* mini-batch.
-                self._nag_update(gradients, velocity, rate)
+                step += 1
+                self._adam_update(gradients, first, second, step, rate)
 
             self.loss_history_.append(total_loss / len(images))
             message = (
@@ -478,4 +465,3 @@ class CNN:
         predicted = self.predict(X)
         labels = self._validate_labels(y, len(predicted))
         return float(np.mean(predicted == labels))
-
