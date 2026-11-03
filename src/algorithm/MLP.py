@@ -367,6 +367,8 @@ class MLP:
             self, X: FeatureArray, y: LabelArray,
             X_val: FeatureArray, y_val: LabelArray
         ):
+        # Start timing the training process
+        start_time = time.time()  
 
         #convert X into a tensor
         X = torch.as_tensor(X, dtype=torch.float32)
@@ -408,6 +410,8 @@ class MLP:
             y_va=y_val,
             verbose=self.verbose,
         )
+        end_time = time.time()
+        self.count_training_time = end_time - start_time
         return self
 
     def predict(self, X: FeatureArray):
@@ -427,6 +431,7 @@ class MLP:
             y_pred = logits.argmax(dim=1).cpu().numpy()
 
         return self.classes_[y_pred]
+<<<<<<< HEAD
 
 
     def plot_history(histories, title=""):
@@ -444,3 +449,22 @@ class MLP:
         fig.suptitle(title)
         plt.tight_layout()
         plt.show()
+=======
+    def predict_proba(self, X: FeatureArray):
+        if self.model_ is None:
+            raise ValueError("Model has not been fitted yet.")
+
+        X = torch.as_tensor(X, dtype=torch.float32)
+
+        # no need to compute gradients when predict
+        with torch.no_grad():
+            logits, _ = MLP.forward_with_cache(
+                self.model_,
+                X,
+                train=False
+            )
+
+            z = logits - logits.max(dim=1, keepdim=True).values
+            probs = torch.exp(z) / torch.exp(z).sum(dim=1, keepdim=True)
+            return probs.cpu().numpy()
+>>>>>>> branch-DomLee
