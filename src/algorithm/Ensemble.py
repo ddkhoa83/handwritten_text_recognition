@@ -185,3 +185,8 @@ class ManualStackingEnsemble:
 
         # Calculate the proportion of correct predictions.
         return np.mean(y_pred == y_test)
+
+
+
+
+
