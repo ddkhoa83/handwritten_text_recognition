@@ -133,7 +133,7 @@ class MLP:
             self.classes_: LabelArray | None = None
     
             #Start with an empty list of epoch losses.
-            self.loss_history_: list[float] = []
+            self.history_: dict[float] = []
 
     ACTIVATIONS = {"relu": nn.ReLU, "sigmoid": nn.Sigmoid, "tanh": nn.Tanh}
     def build_mlp(
@@ -174,12 +174,6 @@ class MLP:
                 if p_drop > 0:
                     layers.append(nn.Dropout(p_drop))
         return nn.Sequential(*layers)
-
-    def n_params(model):
-        """
-        output: the number of parameter
-        """
-        return sum(p.numel() for p in model.parameters())
 
     def forward_with_cache(
             model,
@@ -311,7 +305,7 @@ class MLP:
     def train_one_epoch(
             model, X, y,
             optimizer: SGDMomentum,
-            batch_size=128,
+            batch_size=256,
             weight_decay=0.0
         ):
         """output: mean of cross-entropy loss in one epoch"""
@@ -329,7 +323,7 @@ class MLP:
             count += len(idx)
         return total / count
 
-    def evaluate(model, X: FeatureArray, y: LabelArray, batch_size=5000):
+    def evaluate(model, X: FeatureArray, y: LabelArray, batch_size=256):
         """output: cross-etropy loss, accuracy"""
         total, correct = 0.0, 0
         for s in range(0, len(X), batch_size):
@@ -428,19 +422,28 @@ class MLP:
 
         return self.classes_[y_pred]
 
-
-    def plot_history(histories, title=""):
+    @staticmethod
+    def acc_loss_history_plot(histories, title=""):
         fig, axes = plt.subplots(1, 2, figsize=(13, 4))
+
         for name, h in histories.items():
             ep = np.arange(1, len(h["val_loss"]) + 1)
             line, = axes[0].plot(ep, h["train_loss"], "-", label=f"{name} (train)")
             axes[0].plot(ep, h["val_loss"], "--", color=line.get_color(), label=f"{name} (val)")
             axes[1].plot(ep, h["train_acc"], "-", color=line.get_color())
             axes[1].plot(ep, h["val_acc"], "--", color=line.get_color())
+
         axes[0].set_xlabel("epoch"); axes[0].set_ylabel("cross-entropy")
         axes[1].set_xlabel("epoch"); axes[1].set_ylabel("accuracy")
         axes[0].legend(fontsize=8)
-        axes[1].set_title("net lien: train, net dut: val", fontsize=9)
         fig.suptitle(title)
         plt.tight_layout()
         plt.show()
+
+
+    @staticmethod
+    def n_params(model):
+        """
+        output: the number of parameter
+        """
+        return sum(p.numel() for p in model.parameters())
