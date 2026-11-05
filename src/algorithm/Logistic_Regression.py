@@ -2,7 +2,9 @@
 import numpy as np
 #Import NDArray to annotate the element types of NumPy arrays
 from numpy.typing import NDArray
+from .augmentation import augment_random
 import time
+
 
 #Input features produced by the preprocessing code use float32
 FeatureArray = NDArray[np.float32]
@@ -59,7 +61,8 @@ class LogisticRegression:
         batch_size: int = 256,
         reg_strength: float = 0.0001,
         random_state: int = 42,
-        verbose: bool = True
+        verbose: bool = False,
+        has_aug_data: bool = True
     ) -> None:
         """
         Validate configuration values and initialize model attributes.
@@ -129,6 +132,7 @@ class LogisticRegression:
 
         #Start with an empty list of epoch losses.
         self.loss_history_: list[float] = []
+        self.has_aug_data: bool = has_aug_data
 
     @staticmethod
     def _log_softmax(scores: FloatArray) -> FloatArray:
@@ -475,7 +479,7 @@ class LogisticRegression:
 
                 #Select features rows in the shuffled batch order.
                 X_batch: FloatArray = X_array[batch_indices]
-
+                if self.has_aug_data: X_batch = augment_random(X_batch, rng = random_generator, probability=0.3, max_ty = 1, max_tx = 1)
                 #Select the corresponding labels in the same order
                 y_batch: LabelArray = y_array[batch_indices]
 

@@ -14,7 +14,7 @@ from typing import TypeAlias
 import numpy as np
 #Describe input and output array types
 from numpy.typing import ArrayLike, NDArray
-
+from .augmentation import augment_random
 FloatArray: TypeAlias = NDArray[np.float64] #Dense real-valued matrix/vector.
 IntArray: TypeAlias = NDArray[np.int64] #Integer class labels or encoded indices.
 IndexArray: TypeAlias = NDArray[np.intp] #Native-size array indexing integers
@@ -96,7 +96,7 @@ class MulticlassLinearSVM:
     def __init__(self, learning_rate: float = 0.01, n_epochs: int = 30,
                 batch_size: int = 256, reg_strength: float = 0.0001,
                 learning_rate_decay: float = 0.05, random_state: int = 42,
-                verbose: bool = True) -> None:
+                verbose: bool = False, has_aug_data: bool = True) -> None:
         """Initialize settings without training.
 
         Parameters
@@ -144,6 +144,7 @@ class MulticlassLinearSVM:
         self.bias_: FloatArray | None = None
         self.classes_: IntArray | None = None
         self.loss_history_: list[float] = []
+        self.has_aug_data = has_aug_data
 
     def _require_fiited(self) -> tuple[FloatArray, FloatArray, IntArray]:
         """
@@ -264,7 +265,6 @@ class MulticlassLinearSVM:
         self.loss_history_ = []
         #Type the epoch and batch-start loop variables
         epoch: int; start: int
-
         #Make complete passes over training samples
         for epoch in range(self.n_epochs):
             #Shuffle each epoch
@@ -280,6 +280,7 @@ class MulticlassLinearSVM:
                 batch_indices: IndexArray = shuffled_indices[start: start + self.batch_size]
                 #Gather features of shape (B, D)
                 batch_features: FloatArray = matrix[batch_indices]
+                if self.has_aug_data: batch_features = augment_random(batch_features, rng = generator)
                 #Gather encoded targets (B, )
                 batch_labels: IntArray = encoded_labels[batch_indices]
 

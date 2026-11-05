@@ -58,7 +58,7 @@ def load_mnist_images(file_path: str | Path) -> NDArray[np.uint8]:
         #Check that the image count and both image dimensions are positive
         if n_images <= 0 or n_rows <= 0 or n_cols <= 0:
             #Stop if the header contains invalid dimension.
-            raise ValueEror(f"Invalid image dimension: {file_path}")
+            raise ValueError(f"Invalid image dimension: {file_path}")
 
         #Read everything remaining after the header.
         #Each remaining byte represents one pixel intensity

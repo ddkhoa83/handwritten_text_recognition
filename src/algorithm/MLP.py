@@ -7,6 +7,9 @@ import numpy as np
 #Import NDArray to annotate the element types of NumPy arrays
 from numpy.typing import NDArray
 
+import matplotlib.pyplot as plt
+
+
 #Input features produced by the preprocessing code use float32
 FeatureArray = NDArray[np.float32]
 
@@ -60,7 +63,7 @@ class MLP:
             activation: str = "relu",
             p_drop: float = 0.0,
             init: str = "he",
-            verbose: bool = True
+            verbose: bool = False
         ) -> None:
             """
             Validate configuration values and initialize model attributes.
@@ -353,11 +356,11 @@ class MLP:
                 hist[k].append(v)
             if verbose:
                 print(f"epoch {ep:2d} | {dt:5.1f}s | train loss {tl:.4f} acc {ta:.4f} | val loss {vl:.4f} acc {va:.4f}")
-                print(f"best accuracy: {max(hist["val_acc"]):.4f}")
             if not np.isfinite(tl):
                 if verbose:
                     print("loss = nan/inf, early stop.")
                 break
+
         return hist
 
     def fit(
@@ -445,3 +448,20 @@ class MLP:
             z = logits - logits.max(dim=1, keepdim=True).values
             probs = torch.exp(z) / torch.exp(z).sum(dim=1, keepdim=True)
             return probs.cpu().numpy()
+
+
+    def plot_history(histories, title=""):
+        fig, axes = plt.subplots(1, 2, figsize=(13, 4))
+        for name, h in histories.items():
+            ep = np.arange(1, len(h["val_loss"]) + 1)
+            line, = axes[0].plot(ep, h["train_loss"], "-", label=f"{name} (train)")
+            axes[0].plot(ep, h["val_loss"], "--", color=line.get_color(), label=f"{name} (val)")
+            axes[1].plot(ep, h["train_acc"], "-", color=line.get_color())
+            axes[1].plot(ep, h["val_acc"], "--", color=line.get_color())
+        axes[0].set_xlabel("epoch"); axes[0].set_ylabel("cross-entropy")
+        axes[1].set_xlabel("epoch"); axes[1].set_ylabel("accuracy")
+        axes[0].legend(fontsize=8)
+        axes[1].set_title("net lien: train, net dut: val", fontsize=9)
+        fig.suptitle(title)
+        plt.tight_layout()
+        plt.show()
