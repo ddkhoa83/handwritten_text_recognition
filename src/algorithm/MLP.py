@@ -55,7 +55,7 @@ class MLP:
     def __init__(
             self,
             learning_rate: float = 0.1,
-            n_epochs: int = 30,
+            n_epochs: int = 20,
             batch_size: int = 256,
             momentum: float = 0.0,
             weight_decay: float = 0.0,
@@ -122,6 +122,8 @@ class MLP:
     
             #Store whether training progress should be printed
             self.verbose: bool = verbose
+
+            self.model_: nn.Sequential | None = None
     
             #Weights do not exist until fit determines the input and output sizes
             self.weights_: FloatArray | None = None
@@ -133,7 +135,7 @@ class MLP:
             self.classes_: LabelArray | None = None
     
             #Start with an empty list of epoch losses.
-            self.loss_history_: list[float] = []
+            self.history_: dict[float] = []
 
     ACTIVATIONS = {"relu": nn.ReLU, "sigmoid": nn.Sigmoid, "tanh": nn.Tanh}
     def build_mlp(
@@ -162,6 +164,8 @@ class MLP:
                 nn.init.kaiming_normal_(lin.weight, nonlinearity="relu")   # std = sqrt(2 / k_in)
             elif init == "xavier":
                 nn.init.xavier_uniform_(lin.weight)                         # U(-sqrt(6/(k_in+k_out)), +...)
+            elif init == "const":
+                nn.init.constant_(lin.weight, const)
             else:
                 raise ValueError(init)
             #bias initialization
@@ -174,12 +178,6 @@ class MLP:
                 if p_drop > 0:
                     layers.append(nn.Dropout(p_drop))
         return nn.Sequential(*layers)
-
-    def n_params(model):
-        """
-        output: the number of parameter
-        """
-        return sum(p.numel() for p in model.parameters())
 
     def forward_with_cache(
             model,
@@ -311,7 +309,7 @@ class MLP:
     def train_one_epoch(
             model, X, y,
             optimizer: SGDMomentum,
-            batch_size=128,
+            batch_size=256,
             weight_decay=0.0
         ):
         """output: mean of cross-entropy loss in one epoch"""
@@ -329,7 +327,7 @@ class MLP:
             count += len(idx)
         return total / count
 
-    def evaluate(model, X: FeatureArray, y: LabelArray, batch_size=5000):
+    def evaluate(model, X: FeatureArray, y: LabelArray, batch_size=256):
         """output: cross-etropy loss, accuracy"""
         total, correct = 0.0, 0
         for s in range(0, len(X), batch_size):
@@ -428,19 +426,70 @@ class MLP:
 
         return self.classes_[y_pred]
 
+    @staticmethod
+    def layer_grad_norms(model, X, y):
+        """Tra ve list ||dJ/dW^(l)||_F, tu lop dau den lop cuoi."""
+        #convert X into a tensor
+        X = torch.as_tensor(X, dtype=torch.float32)
+        #save labels's name
+        y = torch.as_tensor(y, dtype=torch.long)
 
-    def plot_history(histories, title=""):
+        logits, cache = MLP.forward_with_cache(model, X, train=True)
+        loss, delta = MLP.softmax_cross_entropy(logits, y)
+        MLP.backward(cache, delta, weight_decay=0.0)
+        return [
+            layer.weight.grad.norm().item()
+            for layer in model if isinstance(layer, nn.Linear)
+        ]
+
+
+    @staticmethod
+    def acc_loss_history_plot(histories, title=""):
         fig, axes = plt.subplots(1, 2, figsize=(13, 4))
+
         for name, h in histories.items():
             ep = np.arange(1, len(h["val_loss"]) + 1)
             line, = axes[0].plot(ep, h["train_loss"], "-", label=f"{name} (train)")
             axes[0].plot(ep, h["val_loss"], "--", color=line.get_color(), label=f"{name} (val)")
             axes[1].plot(ep, h["train_acc"], "-", color=line.get_color())
             axes[1].plot(ep, h["val_acc"], "--", color=line.get_color())
+
         axes[0].set_xlabel("epoch"); axes[0].set_ylabel("cross-entropy")
         axes[1].set_xlabel("epoch"); axes[1].set_ylabel("accuracy")
         axes[0].legend(fontsize=8)
-        axes[1].set_title("net lien: train, net dut: val", fontsize=9)
         fig.suptitle(title)
         plt.tight_layout()
         plt.show()
+
+    @staticmethod
+    def plot_heatmap(M, row_labels, col_labels, row_name, col_name, title, cell_note=None):
+        fig, ax = plt.subplots(figsize=(1.6 * len(col_labels) + 2, 0.9 * len(row_labels) + 1.5))
+        ax.imshow(np.nan_to_num(M, nan=np.nanmin(M) if np.isfinite(M).any() else 0), cmap="viridis")
+        for i in range(M.shape[0]):
+            for j in range(M.shape[1]):
+                txt = "phan ky" if np.isnan(M[i, j]) else f"{M[i, j]:.4f}"
+                if cell_note is not None:
+                    txt += "\n" + cell_note(i, j)
+                ax.text(j, i, txt, ha="center", va="center", fontsize=8,
+                        color="white" if np.isnan(M[i, j]) or M[i, j] < np.nanmedian(M) else "black")
+        ax.set_xticks(range(len(col_labels))); ax.set_xticklabels(col_labels)
+        ax.set_yticks(range(len(row_labels))); ax.set_yticklabels(row_labels)
+        ax.set_xlabel(col_name); ax.set_ylabel(row_name); ax.set_title(title)
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def relu_output_stds(model, X):
+        #convert X into a tensor
+        X = torch.as_tensor(X, dtype=torch.float32)
+
+        _, cache = MLP.forward_with_cache(model, X, train=False)
+        return [a_out.std().item() for layer, _, a_out, _ in cache if isinstance(layer, nn.ReLU)]
+
+
+    @staticmethod
+    def n_params(model):
+        """
+        output: the number of parameter
+        """
+        return sum(p.numel() for p in model.parameters())
