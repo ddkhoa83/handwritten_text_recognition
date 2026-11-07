@@ -59,10 +59,12 @@ class MLP:
             batch_size: int = 256,
             momentum: float = 0.0,
             weight_decay: float = 0.0,
-            hidden_sizes: list = (256, 128),
+            hidden_sizes: list = [256, 128],
             activation: str = "relu",
             p_drop: float = 0.0,
             init: str = "he",
+            early_stop: bool = False,
+            patience: int = 0,
             verbose: bool = False
         ) -> None:
             """
@@ -114,11 +116,20 @@ class MLP:
             self.batch_size: int = batch_size
 
             self.weight_decay = weight_decay
+
             self.momentum = momentum
+
             self.hidden_sizes = tuple(hidden_sizes)
+
             self.activation = activation
+
             self.p_drop = p_drop
+
             self.init = init
+
+            self.early_stop = early_stop
+
+            self.patience = patience
     
             #Store whether training progress should be printed
             self.verbose: bool = verbose
@@ -338,26 +349,63 @@ class MLP:
         return total / len(X), correct / len(X)
 
     def train_model(model, epochs, lr, X_tr , y_tr, X_va, y_va,
-                    momentum=0.0, batch_size=128, weight_decay=0.0,optimizer=None,
-                    seed=SEED, verbose=True):
+                    momentum=0.0, batch_size=128, weight_decay=0.0, optimizer=None,
+                    early_stop= False, patience = 0, seed=SEED, verbose=True):
         
         torch.manual_seed(seed)
+
         opt = optimizer if optimizer is not None else MLP.SGDMomentum(model.parameters(), lr, momentum)
+
         hist = {k: [] for k in ["train_loss", "train_acc", "val_loss", "val_acc", "time"]}
+
+        if early_stop and patience > 0: early_stop = True
+        if early_stop:
+            best_loss = float("inf")
+            best_epoch = 0
+            best_state = copy.deepcopy(model.state_dict())
+            epochs_without_improvement = 0
+
+
         for ep in range(1, epochs + 1):
             t0 = time.time()
             MLP.train_one_epoch(model, X_tr, y_tr, opt, batch_size, weight_decay)
             dt = time.time() - t0
-            tl, ta = MLP.evaluate(model, X_tr, y_tr)
-            vl, va = MLP.evaluate(model, X_va, y_va)
-            for k, v in zip(hist, [tl, ta, vl, va, dt]):
+            train_loss, train_acc = MLP.evaluate(model, X_tr, y_tr)
+            val_loss, val_acc = MLP.evaluate(model, X_va, y_va)
+
+            for k, v in zip(hist, [train_loss, train_acc, val_loss, val_acc, dt]):
                 hist[k].append(v)
             if verbose:
-                print(f"epoch {ep:2d} | {dt:5.1f}s | train loss {tl:.4f} acc {ta:.4f} | val loss {vl:.4f} acc {va:.4f}")
-            if not np.isfinite(tl):
+                print(f"epoch {ep:2d} | {dt:5.1f}s | train loss {train_loss:.4f} acc {train_acc:.4f} | val loss {val_loss:.4f} acc {val_acc:.4f}")
+            if not np.isfinite(train_loss):
                 if verbose:
                     print("loss = nan/inf, early stop.")
                 break
+
+            #early stopping
+            if early_stop:
+                if val_loss < best_loss:
+                    best_loss = val_loss
+                    best_epoch = ep
+                    best_state = copy.deepcopy(model.state_dict())
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
+
+                if not np.isfinite(train_loss) or not np.isfinite(val_loss):
+                    if verbose:
+                        print("Loss = nan/inf, dung som.")
+                    break
+
+                if epochs_without_improvement >= patience:
+                    if verbose:
+                        print(f"Early stopping tai epoch {ep}; best epoch = {best_epoch}.")
+                    break
+
+        if early_stop:
+            model.load_state_dict(best_state)
+            hist["best_epoch"] = best_epoch
+            return hist
 
         return hist
 
@@ -404,6 +452,8 @@ class MLP:
             y_tr=y,
             X_va=X_val,
             y_va=y_val,
+            early_stop=self.early_stop,
+            patience=self.patience,
             verbose=self.verbose,
         )
         return self
