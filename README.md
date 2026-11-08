@@ -144,6 +144,12 @@ Các số liệu dưới đây được lưu trong output của [notebook tham c
 
 Khi báo cáo kết quả chạy lại, ghi kèm commit, phiên bản thư viện, tập dữ liệu, seed, cấu hình và số lượng mẫu đánh giá. Kết quả có thể dao động giữa các môi trường. Thời gian chạy chỉ nên so sánh trên cùng phần cứng và thiết lập số luồng.
 
+## 6. Phần mềm nhận diện chữ số Digit Studio
+
+Digit Studio là ứng dụng desktop nhận diện chữ số viết tay từ 0 đến 9. Người dùng có thể vẽ một chữ số hoặc mở ảnh, sau đó chọn nhiều mô hình để so sánh dự đoán trên cùng một ảnh. Repo sản phẩm chứa mã nguồn ứng dụng và hướng dẫn cài đặt trên Windows, Linux và macOS.
+
+[Mã nguồn Digit Studio trên GitHub](https://github.com/Alee-deg/MNIST_APP)
+
 ## Giấy phép
 
 Mã nguồn được phân phối theo [MIT License](LICENSE).
