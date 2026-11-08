@@ -39,7 +39,7 @@ class CNN:
     def __init__(
         self,
         learning_rate: float = 0.001,
-        n_epochs: int = 20,
+        n_epochs: int = 30,
         batch_size: int = 64,
         reg_strength: float = 0.0001,
         n_filters: int = 16,
@@ -388,7 +388,7 @@ class CNN:
             for start in range(0, len(images), self.batch_size):
                 indices = order[start:start + self.batch_size]
                 batch = np.asarray(images[indices], dtype=np.float64)
-                if self.has_aug_data == True: batch = augment_random(batch, rng = rng, max_angle = 20)
+                if self.has_aug_data == True: batch = augment_random(batch, rng = rng, max_angle = 30)
                 loss, gradients = self._loss_and_gradients(batch, labels[indices])
                 if not math.isfinite(loss):
                     raise FloatingPointError("Nonfinite loss; lower learning_rate.")

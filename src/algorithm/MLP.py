@@ -624,6 +624,9 @@ class MLP:
         # Start timing the training process
         start_time = time.time()  
 
+        # Start timing the training process
+        start_time = time.time()  
+
         # Convert features to a PyTorch tensor.
         X = torch.as_tensor(X, dtype=torch.float32)
         # Store the original class labels.
