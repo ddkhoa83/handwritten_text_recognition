@@ -221,3 +221,6 @@ __marimo__/
 
 # Mac DS_store
 .DS_Store
+
+data/MNIST_expanded_400k_360k_train_40k_test_pm15/MNIST/raw
+/data/MNIST_expanded_400k_360k_train_40k_test_pm15/
